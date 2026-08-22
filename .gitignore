@@ -1,0 +1,5 @@
+# graphify 生成产物（AST 缓存，可重新生成）
+graphify-out/cache/
+
+# Claude Code
+.claude/settings.local.json
