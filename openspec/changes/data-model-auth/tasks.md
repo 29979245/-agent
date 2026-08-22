@@ -57,8 +57,8 @@
 
 ## 10. Alembic 迁移
 
-- [ ] 10.1 `alembic init` + env.py 配置（指向 Base.metadata 与主库 URL），验证 `alembic upgrade head` 无报错
-- [ ] 10.2 生成初始迁移并执行 upgrade，验证 17 张表全部创建 + 重复执行幂等；对真实文件库跑冒烟（17 表可查询、热 FK 列索引存在、插入/删除往返）
+- [x] 10.1 `alembic init` + env.py 配置（指向 Base.metadata 与主库 URL），验证 `alembic upgrade head` 无报错
+- [x] 10.2 生成初始迁移并执行 upgrade，验证 17 张表全部创建 + 重复执行幂等；对真实文件库跑冒烟（17 表可查询、热 FK 列索引存在、插入/删除往返）
 
 ## 11. 集成验证
 
