@@ -10,7 +10,12 @@ import json
 import os
 import time
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "dev-only-secret")
+_jwt_secret = os.environ.get("JWT_SECRET")
+if not _jwt_secret:
+    raise RuntimeError(
+        "JWT_SECRET 环境变量未设置：签名密钥必须显式配置（D3），拒绝使用默认密钥上线。"
+    )
+JWT_SECRET = _jwt_secret
 ACCESS_TOKEN_TTL = 24 * 3600
 REFRESH_TOKEN_TTL = 7 * 24 * 3600
 

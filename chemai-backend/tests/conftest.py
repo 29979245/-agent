@@ -1,4 +1,9 @@
 """pytest 共享夹具：内存 SQLite + create_all + 会话 yield + 清理。"""
+import os
+
+# JWT 签名密钥（D3）：security 模块在 env 缺失时启动即报错，测试环境须先注入。
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret-for-pytest")
+
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
