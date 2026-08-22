@@ -51,9 +51,9 @@
 
 ## 9. HTTP 中间件
 
-- [ ] 9.1 全局认证中间件（白名单前缀放行 + Bearer 校验 + 401），验证白名单/缺失 token/无效 token 三场景测试通过
-- [ ] 9.2 `app/core/exceptions.py` 统一错误码（401/403/404/422/500 + detail/error_code/suggestion），验证错误响应格式测试通过
-- [ ] 9.3 认证/鉴权事件结构化日志（登录成功/失败、refresh、中间件 401 拒绝带原因），验证关键事件均产生日志
+- [x] 9.1 全局认证中间件（白名单前缀放行 + Bearer 校验 + 401），验证白名单/缺失 token/无效 token 三场景测试通过
+- [x] 9.2 `app/core/exceptions.py` 统一错误码（401/403/404/422/500 + detail/error_code/suggestion），验证错误响应格式测试通过
+- [x] 9.3 认证/鉴权事件结构化日志（登录成功/失败、refresh、中间件 401 拒绝带原因），验证关键事件均产生日志
 
 ## 10. Alembic 迁移
 

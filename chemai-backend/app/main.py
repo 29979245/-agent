@@ -3,13 +3,14 @@
 启动命令（开发）：
     uvicorn app.main:app --reload --port 8000
 """
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.api.v1.auth import auth_router, parent_router
 from app.config import settings
 from app.core.exceptions import APIException
+from app.core.middleware import AuthMiddleware
 
 app = FastAPI(
     title="ChemAI 智辅化学 API",
@@ -27,6 +28,19 @@ def _api_exception_handler(request: Request, exc: APIException) -> JSONResponse:
     )
 
 
+@app.exception_handler(404)
+def _not_found_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    return JSONResponse(
+        status_code=404,
+        content={"detail": "资源不存在", "error_code": "NOT_FOUND", "suggestion": ""},
+    )
+
+
+@app.exception_handler(HTTPException)
+def _http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc.detail)})
+
+
 @app.exception_handler(RequestValidationError)
 def _validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     first = exc.errors()[0] if exc.errors() else {}
@@ -39,6 +53,8 @@ def _validation_exception_handler(request: Request, exc: RequestValidationError)
         },
     )
 
+
+app.add_middleware(AuthMiddleware)
 
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(parent_router, prefix="/api/parent", tags=["parent"])

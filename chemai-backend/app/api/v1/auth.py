@@ -4,9 +4,12 @@
 - POST /api/auth/refresh     refresh_token → 新 access + refresh
 - POST /api/parent/login     phone + bind_code → parent 令牌（无密码路径）
 """
+import logging
 import os
 
 from fastapi import APIRouter, Depends
+
+auth_logger = logging.getLogger("chemai.auth")
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -112,6 +115,10 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
     """统一账户登录：教师/学生系走密码；教师待审核/被驳回拒绝。"""
     account = db.query(Account).filter(Account.username == payload.username).first()
     if account is None or not verify_password(payload.password, account.password_hash):
+        auth_logger.info(
+            "login_failed",
+            extra={"event": "login_failed", "username": payload.username, "reason": "bad_credentials"},
+        )
         raise UnauthorizedError()
 
     if account.role in _TEACHER_ROLES:
@@ -119,12 +126,24 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
         if teacher is None:
             raise UnauthorizedError()
         if teacher.status == TeacherStatus.pending:
+            auth_logger.info(
+                "login_rejected",
+                extra={"event": "login_rejected", "username": payload.username, "role": "teacher", "reason": "pending"},
+            )
             raise AccountPendingError()
         if teacher.status == TeacherStatus.rejected:
+            auth_logger.info(
+                "login_rejected",
+                extra={"event": "login_rejected", "username": payload.username, "role": "teacher", "reason": "rejected"},
+            )
             raise AccountRejectedError()
 
     school_id = None if account.role == AccountRole.parent else _resolve_school_id(db, account)
     name = _resolve_name(db, account)
+    auth_logger.info(
+        "login_success",
+        extra={"event": "login_success", "username": payload.username, "role": account.role.value},
+    )
     return _issue_tokens(account, school_id, name)
 
 
@@ -134,14 +153,26 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> dict:
     try:
         data = decode_token(payload.refresh_token, expected_type="refresh")
     except TokenExpiredError:
+        auth_logger.info(
+            "refresh_failed",
+            extra={"event": "refresh_failed", "reason": "token_expired"},
+        )
         raise TokenExpiredAPIError()
     except InvalidTokenError:
+        auth_logger.info(
+            "refresh_failed",
+            extra={"event": "refresh_failed", "reason": "token_invalid"},
+        )
         raise UnauthorizedError()
     account = db.get(Account, data["user_id"])
     if account is None:
         raise UnauthorizedError()
     school_id = None if account.role == AccountRole.parent else _resolve_school_id(db, account)
     name = _resolve_name(db, account)
+    auth_logger.info(
+        "refresh_success",
+        extra={"event": "refresh_success", "user_id": account.id, "role": account.role.value},
+    )
     return _issue_tokens(account, school_id, name)
 
 
