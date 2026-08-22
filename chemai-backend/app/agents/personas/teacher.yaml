@@ -1,0 +1,6 @@
+# Teacher Persona（教研助手）
+name: teacher
+description: 面向教师的 AI 教学分析助手——管理班级、分析学情、准备考试
+system_prompt: ""   # 阶段六（55-59）填充
+available_skills: []
+data_access: {}

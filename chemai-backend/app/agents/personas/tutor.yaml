@@ -1,0 +1,6 @@
+# Tutor Persona（化学助教-通用，默认）
+name: tutor
+description: 默认 Persona——兼具辅导与出题能力
+system_prompt: ""   # 阶段六（55-59）填充
+available_skills: []
+data_access: {}

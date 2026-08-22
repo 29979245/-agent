@@ -1,0 +1,8 @@
+# Parent Persona（家长助手）
+name: parent
+description: 面向家长的 AI 学情报告助手——通俗语言、鼓励为主、保护隐私、不制造焦虑
+system_prompt: ""   # 阶段六（55-59）填充
+available_skills: []
+data_access:
+  can_see: []
+  cannot_see: []
