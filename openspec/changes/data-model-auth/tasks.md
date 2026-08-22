@@ -62,5 +62,5 @@
 
 ## 11. 集成验证
 
-- [ ] 11.1 全量 `pytest tests/` 通过（模型/JWT/权限/中间件/迁移），验证无失败用例
-- [ ] 11.2 运行 `run_evals --tier l1` 通过（L1 单元 ≥95%），验证后打 `evals-ok` 标签；每个模型/组件已按原子提交（conventional commits：model/auth/permission/guard 等 scope）
+- [x] 11.1 全量 `pytest tests/` 通过（模型/JWT/权限/中间件/迁移），验证无失败用例
+- [x] 11.2 运行 `run_evals --tier l1` 通过（L1 单元 ≥95%），验证后打 `evals-ok` 标签；每个模型/组件已按原子提交（conventional commits：model/auth/permission/guard 等 scope）
