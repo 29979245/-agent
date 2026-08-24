@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>登录 · 智辅化学</title>
+  <style>
+    :root {
+      --oxford: #002045;
+      --teal: #13696a;
+      --paper: #faf8f5;
+      --ink: #1f2937;
+      --muted: #6b7280;
+      --congo: #b43c28;
+      --line: rgba(0, 32, 69, .12);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+      background: var(--paper); color: var(--ink); font-size: 14px;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    }
+    .wrap { width: 360px; }
+    .brand { text-align: center; font-size: 22px; font-weight: 700; letter-spacing: 2px; color: var(--oxford); margin-bottom: 4px; }
+    .subtitle { text-align: center; font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 26px 26px 20px; }
+    .field { margin-bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 13px; color: var(--muted); }
+    input {
+      border: 1px solid var(--line); border-radius: 4px; padding: 9px 12px;
+      font-size: 14px; font-family: inherit; background: #fff; outline: none;
+    }
+    input:focus { border-color: var(--teal); }
+    .btn {
+      width: 100%; background: var(--teal); color: #fff; border: none; border-radius: 4px;
+      padding: 10px; font-size: 14px; cursor: pointer; font-family: inherit;
+    }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .msg { min-height: 20px; font-size: 13px; margin-top: 12px; text-align: center; }
+    .msg.err { color: var(--congo); }
+    .hint { margin-top: 14px; text-align: center; font-size: 12px; color: var(--muted); line-height: 1.8; }
+    .hint code { background: var(--paper); border: 1px solid var(--line); padding: 1px 6px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand">智辅化学</div>
+    <div class="subtitle">考试工作台 · 教师登录</div>
+    <div class="card">
+      <form id="loginForm" autocomplete="off">
+        <div class="field">
+          <label for="username">用户名</label>
+          <input id="username" name="username" required autocomplete="username" placeholder="请输入用户名" />
+        </div>
+        <div class="field">
+          <label for="password">密码</label>
+          <input id="password" name="password" type="password" required autocomplete="current-password" placeholder="请输入密码" />
+        </div>
+        <button id="submitBtn" class="btn" type="submit">登 录</button>
+      </form>
+      <div id="msg" class="msg" aria-live="polite"></div>
+    </div>
+    <div class="hint">
+      演示教师账号：<code>teacher_demo / demo123</code><br />
+      仅教师及以上角色可进入出题工作台
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      const form = document.getElementById('loginForm');
+      const submitBtn = document.getElementById('submitBtn');
+      const msg = document.getElementById('msg');
+
+      function show(text, isErr) {
+        msg.textContent = text || '';
+        msg.className = 'msg' + (isErr ? ' err' : '');
+      }
+      function roleLabel(role) {
+        return { teacher: '教师', admin: '管理员', dept_admin: '校级管理员', subject_lead: '学科负责人' }[role] || role;
+      }
+
+      // 已登录教师直接进入工作台
+      if (window.ChemAuth.getToken()) {
+        if (window.ChemAuth.isTeacherLike()) {
+          location.replace('exam-v2.html');
+        } else {
+          window.ChemAuth.logout();
+        }
+      }
+
+      form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const username = form.username.value.trim();
+        const password = form.password.value;
+        if (!username || !password) {
+          show('请输入用户名和密码', true);
+          return;
+        }
+        submitBtn.disabled = true;
+        submitBtn.textContent = '登录中…';
+        show('', false);
+        try {
+          const data = await window.ChemAuth.login(username, password);
+          if (window.ChemAuth.isTeacherLike()) {
+            show('登录成功，正在进入工作台…', false);
+            location.replace('exam-v2.html');
+          } else {
+            // 学生/家长等角色无工作台权限：清除会话并提示
+            window.ChemAuth.logout();
+            show('无权限：仅教师及以上角色可进入出题工作台（当前角色：' + roleLabel(data.role) + '）', true);
+          }
+        } catch (err) {
+          show((err && err.message) || '登录失败，请稍后重试', true);
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = '登 录';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

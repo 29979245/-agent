@@ -1,5 +1,9 @@
-# graphify 生成产物（AST 缓存，可重新生成）
-graphify-out/cache/
+# graphify 生成产物（AST 图谱，可 graphify update . 重新生成）
+graphify-out/
+
+# 草稿原型
+stitch-prototypes/
 
 # Claude Code
 .claude/settings.local.json
+.gstack/

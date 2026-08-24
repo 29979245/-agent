@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>考试工作台 · 智辅化学</title>
+  <!-- 课程 46 技术栈：Vue 3 + Tailwind CSS + KaTeX + marked，零构建。
+       国内网络访问 unpkg/jsdelivr/tailwind CDN 不可靠（unpkg 会挂起阻塞解析），
+       已改为本地 vendor 静态资源；布局全部由下方 <style> 与内联样式承担，无需 Tailwind CDN。 -->
+  <script src="vendor/vue.global.prod.js"></script>
+  <link rel="stylesheet" href="vendor/katex.min.css" />
+  <script src="vendor/katex.min.js"></script>
+  <script src="vendor/mhchem.min.js"></script>
+  <script src="vendor/auto-render.min.js"></script>
+  <script src="vendor/marked.min.js"></script>
+  <style>
+    :root {
+      --oxford: #002045;
+      --teal: #13696a;
+      --paper: #faf8f5;
+      --ink: #1f2937;
+      --muted: #6b7280;
+      --congo: #b43c28;
+      --methyl: #2c6e49;
+      --pass-bg: #e8f5ec; --pass-fg: #1d7a3e;
+      --warn-bg: #fdf3e0; --warn-fg: #b26a00;
+      --block-bg: #fdecea; --block-fg: #c0392b;
+      --line: rgba(0, 32, 69, .12);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+      background: var(--paper); color: var(--ink); font-size: 14px;
+    }
+    .sidebar {
+      width: 220px; background: var(--oxford); color: #fff;
+      position: fixed; inset: 0 auto 0 0; padding: 22px 14px;
+    }
+    .brand { font-size: 18px; font-weight: 700; letter-spacing: 1px; }
+    .sidebar .user { margin-top: 18px; font-size: 12px; color: rgba(255,255,255,.75); line-height: 1.8; }
+    .sidebar .logout {
+      margin-top: 10px; background: none; border: 1px solid rgba(255,255,255,.4);
+      color: #fff; border-radius: 4px; padding: 5px 12px; cursor: pointer; font-size: 12px;
+    }
+    .main { margin-left: 220px; padding: 22px 30px 64px; }
+    .page-title { font-size: 20px; font-weight: 700; margin: 0 0 14px; }
+    .nav-tabs { display: flex; gap: 8px; border-bottom: 2px solid var(--line); margin-bottom: 20px; }
+    .nav-tab {
+      padding: 8px 16px; cursor: pointer; border: none; background: none;
+      font-size: 14px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -2px;
+    }
+    .nav-tab.active { color: var(--teal); font-weight: 600; border-bottom-color: var(--teal); }
+    .sub-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+    .sub-tab {
+      padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line);
+      background: #fff; cursor: pointer; font-size: 13px; color: var(--muted);
+    }
+    .sub-tab.active { background: var(--teal); color: #fff; border-color: var(--teal); }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; margin-bottom: 14px; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px 20px; }
+    .form-field { display: flex; flex-direction: column; gap: 6px; }
+    .form-field label { font-size: 13px; color: var(--muted); }
+    input, textarea, select { border: 1px solid var(--line); border-radius: 4px; padding: 7px 10px; font-size: 14px; font-family: inherit; background: #fff; }
+    textarea { resize: vertical; }
+    .btn-primary { background: var(--teal); color: #fff; border: none; border-radius: 4px; padding: 8px 18px; cursor: pointer; font-size: 14px; }
+    .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+    .btn-outline { background: none; border: 1px solid var(--teal); color: var(--teal); border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+    .btn-danger-outline { background: none; border: 1px solid var(--congo); color: var(--congo); border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+    .type-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .type-chip { padding: 5px 14px; border-radius: 999px; border: 1px solid var(--line); cursor: pointer; background: #fff; font-size: 13px; color: var(--muted); }
+    .type-chip.on { background: var(--methyl); color: #fff; border-color: var(--methyl); }
+    .kp-cloud { display: flex; flex-wrap: wrap; gap: 6px; max-height: 140px; overflow-y: auto; padding: 4px 0; }
+    .kp-tag { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: #fff; cursor: pointer; font-size: 12px; color: var(--muted); }
+    .kp-tag.on { background: var(--teal); color: #fff; border-color: var(--teal); }
+    .kp-tag-static { padding: 2px 8px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+    .upload-zone {
+      display: block; border: 2px dashed var(--line); border-radius: 6px; padding: 30px;
+      text-align: center; color: var(--muted); cursor: pointer; background: #fff;
+    }
+    .upload-zone img { max-width: 220px; max-height: 140px; margin-top: 10px; }
+
+    /* 题目卡片 */
+    .qcard { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; margin-bottom: 14px; }
+    .qcard-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }
+    .src-tag { background: var(--oxford); color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 999px; }
+    .audit-badge { padding: 3px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .b-passed { background: var(--pass-bg); color: var(--pass-fg); }
+    .b-warning { background: var(--warn-bg); color: var(--warn-fg); }
+    .b-blocked { background: var(--block-bg); color: var(--block-fg); }
+    .b-approved { background: var(--pass-bg); color: var(--pass-fg); }
+    .q-content { font-size: 14px; line-height: 1.7; margin: 0 0 6px; }
+    .q-options { list-style: none; padding: 0; margin: 0 0 6px; }
+    .q-options li { font-size: 13px; padding: 2px 0; }
+    .q-answer { font-size: 13px; color: var(--methyl); margin-bottom: 4px; }
+    .q-analysis { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    .q-kps { display: flex; flex-wrap: wrap; gap: 6px; }
+    .audit-report { border: 1px solid var(--line); border-radius: 6px; margin-top: 10px; overflow: hidden; }
+    .report-block { padding: 10px 14px; }
+    .report-block + .report-block { border-top: 1px solid var(--line); }
+    .report-title { font-size: 13px; font-weight: 600; color: var(--oxford); margin-bottom: 6px; display: flex; justify-content: space-between; }
+    .composite { color: var(--teal); font-weight: 700; }
+    .dim-row { display: flex; align-items: center; gap: 10px; font-size: 12px; padding: 3px 0; }
+    .dim-label { width: 74px; color: var(--muted); flex-shrink: 0; }
+    .dim-badge { padding: 1px 8px; border-radius: 999px; font-size: 11px; min-width: 40px; text-align: center; flex-shrink: 0; }
+    .dim-score { width: 74px; font-weight: 600; flex-shrink: 0; }
+    .dim-evidence { color: var(--muted); flex: 1; }
+    .eq-note { font-size: 12px; color: var(--muted); padding: 2px 0; }
+    .ql-degraded { font-size: 12px; color: #8a6d3b; background: #fdf6e3; padding: 6px 14px; border-top: 1px solid var(--line); }
+    .fail-banner { background: var(--block-bg); color: var(--block-fg); font-size: 13px; padding: 8px 14px; border-top: 1px solid var(--line); }
+    .trap-note { background: var(--warn-bg); color: var(--warn-fg); font-size: 12px; padding: 6px 14px; border-top: 1px solid var(--line); }
+    .qcard-actions { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+    .in-bank { color: var(--pass-fg); font-size: 13px; font-weight: 600; }
+
+    /* 批量操作栏 */
+    .batch-bar { display: flex; gap: 8px; align-items: center; margin-top: 12px; padding: 10px 14px; background: var(--paper); border: 1px solid var(--line); border-radius: 6px; }
+
+    /* 真题树 */
+    .tree-item { font-size: 13px; padding: 4px 0; cursor: pointer; }
+    .tree-item .caret { display: inline-block; width: 16px; color: var(--muted); }
+    .tree-item.region { font-weight: 600; color: var(--oxford); }
+    .tree-item.year { padding-left: 18px; color: var(--teal); }
+    .tree-item.paper { padding-left: 36px; color: var(--ink); }
+
+    /* 考试卡片 */
+    .exam-card { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .status-chip { padding: 2px 10px; border-radius: 999px; font-size: 12px; background: var(--paper); border: 1px solid var(--line); color: var(--muted); flex-shrink: 0; }
+    .status-chip.Draft { color: #8a6d3b; background: #fdf6e3; }
+    .status-chip.AddingQuestions { color: #0b6bcb; background: #e8f1fb; }
+    .status-chip.Published { color: var(--pass-fg); background: var(--pass-bg); }
+    .status-chip.InProgress { color: #6d28d9; background: #f3e8ff; }
+    .status-chip.Completed { color: var(--muted); background: #f3f4f6; }
+
+    /* modal + toast */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .modal-box { background: #fff; border-radius: 8px; padding: 20px 24px; width: 560px; max-width: 92vw; max-height: 86vh; overflow-y: auto; }
+    .modal-box h3 { margin: 0 0 12px; font-size: 16px; color: var(--oxford); }
+    .toast { position: fixed; top: 20px; right: 20px; z-index: 2000; padding: 10px 16px; border-radius: 6px; color: #fff; font-size: 13px; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+    .toast.err { background: var(--congo); }
+    .toast.ok { background: var(--teal); }
+
+    /* 移动端布局适配：折叠侧边栏、导航换行、表单单列 */
+    @media (max-width: 768px) {
+      .sidebar { position: static; width: 100%; padding: 14px 16px; }
+      .sidebar .logout { margin-top: 8px; }
+      .main { margin-left: 0; padding: 16px 14px 48px; }
+      .nav-tabs { flex-wrap: wrap; gap: 4px 12px; }
+      .form-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <aside class="sidebar">
+      <div class="brand">智辅化学</div>
+      <div class="user">
+        <div>{{ user.name || '教师' }}</div>
+        <div>角色：{{ user.role || '-' }}</div>
+      </div>
+      <button class="logout" @click="logout">退出登录</button>
+    </aside>
+
+    <main class="main">
+      <h1 class="page-title">考试工作台</h1>
+
+      <nav class="nav-tabs">
+        <button class="nav-tab" :class="{ active: tab === 'workbench' }" @click="tab = 'workbench'">出题工作台</button>
+        <button class="nav-tab" :class="{ active: tab === 'bank' }" @click="tab = 'bank'">题库管理</button>
+        <button class="nav-tab" :class="{ active: tab === 'history' }" @click="tab = 'history'">历史真题库</button>
+        <button class="nav-tab" :class="{ active: tab === 'exams' }" @click="tab = 'exams'">考试列表</button>
+      </nav>
+
+      <!-- ============ Tab 1 出题工作台 ============ -->
+      <section v-show="tab === 'workbench'">
+        <div class="sub-tabs">
+          <button class="sub-tab" :class="{ active: mode === 'ai' }" @click="mode = 'ai'">AI 生成</button>
+          <button class="sub-tab" :class="{ active: mode === 'manual' }" @click="mode = 'manual'">手动录入</button>
+          <button class="sub-tab" :class="{ active: mode === 'ocr' }" @click="mode = 'ocr'">OCR 导入</button>
+        </div>
+
+        <!-- AI 生成 -->
+        <div class="card" v-show="mode === 'ai'">
+          <div class="form-grid">
+            <div class="form-field">
+              <label>题型（可多选）</label>
+              <div class="type-row">
+                <button v-for="t in typeChips" :key="t.key" class="type-chip" :class="{ on: ai.types.includes(t.key) }" @click="toggleType(t.key)">{{ t.label }}</button>
+              </div>
+            </div>
+            <div class="form-field">
+              <label>难度</label>
+              <select v-model="ai.difficulty">
+                <option value="easy">容易</option>
+                <option value="medium">中等</option>
+                <option value="hard">困难</option>
+                <option value="competition">竞赛</option>
+              </select>
+            </div>
+            <div class="form-field" style="grid-column: 1 / -1">
+              <label>知识点检索（可多选，数据来自 GET /api/knowledge/list）</label>
+              <input v-model="aiKpQuery" placeholder="输入关键字筛选知识点…" />
+              <div class="kp-cloud">
+                <span v-for="k in filteredKps" :key="k.name" class="kp-tag" :class="{ on: ai.kps.includes(k.name) }" @click="toggleKp(k.name)">{{ k.name }}</span>
+              </div>
+            </div>
+            <div class="form-field" style="grid-column: 1 / -1">
+              <label>题目内容（后端生成管线未落地，AI 模式提交以下内容做双层审核；化学式用 $\ce{...}$）</label>
+              <textarea v-model="ai.content" rows="4"></textarea>
+            </div>
+          </div>
+          <div style="margin-top: 12px">
+            <button class="btn-primary" :disabled="generating" @click="aiGenerate">{{ generating ? '生成中…' : 'AI 出题' }}</button>
+          </div>
+        </div>
+
+        <!-- 手动录入 -->
+        <div class="card" v-show="mode === 'manual'">
+          <div class="form-grid">
+            <div class="form-field" style="grid-column: 1 / -1">
+              <label>题干</label>
+              <textarea v-model="manual.content" rows="3"></textarea>
+            </div>
+            <div class="form-field" style="grid-column: 1 / -1">
+              <label>选项（每行一个）</label>
+              <textarea v-model="manual.optionsText" rows="3"></textarea>
+            </div>
+            <div class="form-field"><label>答案</label><input v-model="manual.answer" /></div>
+            <div class="form-field">
+              <label>难度</label>
+              <select v-model="manual.difficulty">
+                <option value="easy">容易</option>
+                <option value="medium">中等</option>
+                <option value="hard">困难</option>
+                <option value="competition">竞赛</option>
+              </select>
+            </div>
+            <div class="form-field" style="grid-column: 1 / -1">
+              <label>解析</label>
+              <textarea v-model="manual.analysis" rows="3"></textarea>
+            </div>
+            <div class="form-field" style="grid-column: 1 / -1">
+              <label>知识点（逗号分隔）</label>
+              <input v-model="manual.kps" />
+            </div>
+          </div>
+          <div style="margin-top: 12px">
+            <button class="btn-primary" :disabled="generating" @click="manualAdd">{{ generating ? '提交中…' : '提交手动录入（仅方程式级审核）' }}</button>
+          </div>
+        </div>
+
+        <!-- OCR 导入 -->
+        <div class="card" v-show="mode === 'ocr'">
+          <label class="upload-zone" for="ocr-input">
+            <div v-if="!ocr.previewUrl">点击选择题目图片，识别后仅过方程式级审核</div>
+            <template v-else>
+              <img :src="ocr.previewUrl" :alt="ocr.fileName" />
+              <div style="margin-top: 6px">{{ ocr.fileName }}</div>
+            </template>
+          </label>
+          <input id="ocr-input" type="file" accept="image/*" style="display: none" @change="handleOcrFile" />
+          <div style="margin-top: 12px">
+            <button class="btn-primary" :disabled="generating" @click="ocrRecognize">{{ generating ? '识别中…' : '开始识别' }}</button>
+          </div>
+        </div>
+
+        <!-- 结果列表 -->
+        <div v-if="questions.length">
+          <h3 style="margin: 18px 0 10px; font-size: 15px; color: var(--oxford)">出题结果（{{ questions.length }}）</h3>
+          <question-card v-for="q in questions" :key="q.question_id" :q="q" @approve="approveQuestion" @regenerate="openRegen"></question-card>
+        </div>
+      </section>
+
+      <!-- ============ Tab 2 题库管理 ============ -->
+      <section v-show="tab === 'bank'">
+        <div class="card">
+          <div class="form-grid">
+            <div class="form-field">
+              <label>题库文件夹（GET /api/exam-bank/exam-sets，演示数据）</label>
+              <div style="display: flex; gap: 8px">
+                <select v-model="selectedSetId" @change="selectSet(selectedSetId)" style="flex: 1">
+                  <option v-for="s in examSets" :key="s.id" :value="s.id">{{ s.name }}（{{ s.question_count }} 题）</option>
+                </select>
+                <button class="btn-outline" @click="createExamSet">新建</button>
+                <button class="btn-danger-outline" @click="deleteExamSet(selectedSetId)" :disabled="selectedSetId == null">删除</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="bankQuestions.length" class="card">
+          <div v-for="q in bankQuestions" :key="q.id" style="display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line)">
+            <input type="checkbox" style="margin-top: 3px" :checked="selectedBank.includes(q.id)" @change="toggleBank(q)" />
+            <div style="flex: 1">
+              <div v-katex v-html="renderMarkdown(q.content)"></div>
+              <div v-if="q.answer" style="font-size: 12px; color: var(--methyl); margin-top: 4px">答案：{{ q.answer }}</div>
+              <div class="q-kps" style="margin-top: 6px">
+                <span class="kp-tag-static" v-for="k in splitKps(q.knowledge_points)" :key="k">{{ k }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="batch-bar">
+            <span style="color: var(--muted)">已选 {{ selectedBank.length }} 题</span>
+            <button class="btn-outline" @click="batchAddToExam">加入考试</button>
+            <button class="btn-danger-outline" @click="batchRemoveFromBank">从题库移除</button>
+          </div>
+        </div>
+        <div v-else class="card" style="color: var(--muted)">请选择或新建题库文件夹（演示数据）</div>
+      </section>
+
+      <!-- ============ Tab 3 历史真题库 ============ -->
+      <section v-show="tab === 'history'">
+        <div class="card">
+          <div style="display: flex; gap: 8px">
+            <input v-model="historyQuery" placeholder="输入关键词搜索真题…（GET /api/question/historical）" style="flex: 1" @keyup.enter="searchHistory" />
+            <button class="btn-primary" @click="searchHistory">搜索</button>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 260px 1fr; gap: 16px">
+          <div class="card" style="max-height: 72vh; overflow-y: auto">
+            <div class="report-title">试卷目录（GET /api/exam-bank/papers，演示数据）</div>
+            <div v-for="r in paperTree" :key="r.region">
+              <div class="tree-item region" @click="toggleRegion(r)">
+                <span class="caret">{{ openedRegions[r.region] ? '▼' : '▶' }}</span>{{ r.region }}
+              </div>
+              <template v-if="openedRegions[r.region]">
+                <div v-for="y in r.years" :key="r.region + y.year">
+                  <div class="tree-item year" @click="toggleYear(r, y)">
+                    <span class="caret">{{ openedYears[r.region + '/' + y.year] ? '▼' : '▶' }}</span>{{ y.year }}
+                  </div>
+                  <div v-for="pp in y.papers" v-show="openedYears[r.region + '/' + y.year]" :key="pp.id" class="tree-item paper" @click="historyQuery = pp.name">{{ pp.name }}（{{ pp.questions }} 题）</div>
+                </div>
+              </template>
+            </div>
+          </div>
+          <div>
+            <div v-if="historyResults.length">
+              <div class="card" v-for="h in historyResults" :key="h.id">
+                <div class="qcard-head">
+                  <span class="src-tag">基于 {{ h.source_paper }} · 相似度 {{ h.similarity }}</span>
+                </div>
+                <div v-katex v-html="renderMarkdown(h.content)"></div>
+                <div v-if="h.options && h.options.length" style="font-size: 13px; color: var(--muted); margin-top: 4px">{{ h.options.join('　') }}</div>
+                <div class="q-kps" style="margin-top: 6px">
+                  <span class="kp-tag-static" v-for="k in splitKps(h.knowledge_points)" :key="k">{{ k }}</span>
+                </div>
+                <div class="qcard-actions">
+                  <button class="btn-outline" @click="addVariantFromHistory(h)">设为变体蓝本</button>
+                  <button class="btn-outline" @click="addHistoryToExam(h)">加入考试</button>
+                </div>
+              </div>
+            </div>
+            <div v-else class="card" style="color: var(--muted)">输入关键词搜索，或从左侧目录选择试卷（演示数据）</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ Tab 4 考试列表 ============ -->
+      <section v-show="tab === 'exams'">
+        <div class="card">
+          <div class="form-grid">
+            <div class="form-field">
+              <label>考试名称</label>
+              <input v-model="newExam.name" placeholder="如：高一·期中考试" />
+            </div>
+            <div class="form-field">
+              <label>班级（GET /api/classes，演示数据）</label>
+              <select v-model="newExam.class_id">
+                <option v-for="c in classes" :key="c.id" :value="c.id">{{ c.name }}</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top: 12px">
+            <button class="btn-primary" @click="createExam">创建考试</button>
+          </div>
+        </div>
+
+        <div v-for="e in exams" :key="e.id" class="card exam-card">
+          <div>
+            <div style="font-weight: 600">{{ e.name }}</div>
+            <div style="font-size: 12px; color: var(--muted); margin-top: 2px">{{ e.class_name }} · {{ e.question_count }} 题 · 创建于 {{ e.created_at }}</div>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
+            <span class="status-chip" :class="e.status">{{ examStatusLabel(e.status) }}</span>
+            <button class="btn-outline" @click="examAction(e, 'edit')">编辑</button>
+            <button v-if="e.status === 'AddingQuestions'" class="btn-outline" @click="examAction(e, 'publish')">发布</button>
+            <button class="btn-outline" @click="examAction(e, 'export')">导出</button>
+            <button class="btn-danger-outline" @click="examAction(e, 'delete')">删除</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- 重生成弹窗 -->
+    <div class="modal-overlay" v-if="regen.show" @click.self="regen.show = false">
+      <div class="modal-box">
+        <h3>打回重生成</h3>
+        <div class="form-field" style="margin-bottom: 10px">
+          <label>题目内容</label>
+          <textarea v-model="regen.content" rows="4"></textarea>
+        </div>
+        <div class="form-field" style="margin-bottom: 10px"><label>答案</label><input v-model="regen.answer" /></div>
+        <div class="form-field" style="margin-bottom: 10px"><label>解析</label><textarea v-model="regen.analysis" rows="2"></textarea></div>
+        <div class="form-field" style="margin-bottom: 14px"><label>知识点</label><input v-model="regen.knowledge_points" /></div>
+        <div style="display: flex; justify-content: flex-end; gap: 8px">
+          <button class="btn-outline" @click="regen.show = false">取消</button>
+          <button class="btn-primary" @click="submitRegen">重新生成并审核</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" :class="toastState.isErr ? 'err' : 'ok'" v-if="toastState.visible">{{ toastState.msg }}</div>
+  </div>
+
+  <!-- QuestionCard 组件模板 -->
+  <template id="tpl-question-card">
+    <div class="qcard">
+      <div class="qcard-head">
+        <div>
+          <span class="src-tag" v-if="q.source_label">{{ q.source_label }}</span>
+          <span class="kp-tag-static" v-if="q.review_flag" style="margin-left: 6px">待复核</span>
+        </div>
+        <span class="audit-badge" :class="'b-' + q.overall_status">{{ statusTextOf(q.overall_status) }}</span>
+      </div>
+      <p class="q-content" v-katex v-html="renderMarkdown(q.content)"></p>
+      <ul class="q-options" v-if="q.options && q.options.length">
+        <li v-for="(opt, i) in q.options" :key="i" v-katex v-html="renderMarkdown(opt)"></li>
+      </ul>
+      <div class="q-answer" v-if="q.answer">【答案】<span v-katex v-html="renderMarkdown(q.answer)"></span></div>
+      <div class="q-analysis" v-if="q.analysis">【解析】<span v-katex v-html="renderMarkdown(q.analysis)"></span></div>
+      <div class="q-kps" v-if="kpList.length">
+        <span class="kp-tag-static" v-for="k in kpList" :key="k">{{ k }}</span>
+      </div>
+
+      <div class="audit-report">
+        <div class="report-block">
+          <div class="report-title">方程式级审核 <span class="composite">{{ eqOverall() }}</span></div>
+          <div class="dim-row" v-for="d in eqDims" :key="d.label">
+            <span class="dim-label">{{ d.label }}</span>
+            <span class="dim-badge" :class="'b-' + d.status">{{ statusTextOf(d.status) }}</span>
+            <span class="dim-evidence" v-if="d.evidence">{{ d.evidence }}</span>
+          </div>
+          <div class="eq-note" v-if="eqNote">{{ eqNote }}</div>
+        </div>
+        <div class="report-block" v-if="ql">
+          <div class="report-title">题目级审核 <span class="composite">综合分 {{ ql.composite }}</span></div>
+          <div class="dim-row" v-for="d in qlDims" :key="d.label">
+            <span class="dim-label">{{ d.label }}</span>
+            <span class="dim-score">{{ d.score }} 分</span>
+            <span class="dim-evidence" v-if="d.evidence">{{ d.evidence }}</span>
+          </div>
+          <div class="eq-note" v-if="ql.reason">{{ ql.reason }}</div>
+        </div>
+        <div class="ql-degraded" v-else-if="llmUnconfigured">题目级评审未执行（未配置 LLM 密钥），仅方程式级审核</div>
+      </div>
+
+      <div class="fail-banner" v-if="q.generation_failed">出题失败（已自动重生成 {{ attempts }} 次）</div>
+      <div class="trap-note" v-if="q.trap_note">{{ q.trap_note }}</div>
+
+      <div class="qcard-actions">
+        <button v-if="showApprove" class="btn-primary" style="padding: 6px 14px" @click="$emit('approve', q)">批准入库</button>
+        <button v-if="showRegenerate" class="btn-danger-outline" @click="$emit('regenerate', q)">打回重生成</button>
+        <span class="in-bank" v-if="q.approved">✓ 已入库</span>
+      </div>
+    </div>
+  </template>
+
+  <script src="js/mock.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/katex.js"></script>
+  <script src="js/workbench.js"></script>
+</body>
+</html>

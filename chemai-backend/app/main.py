@@ -3,14 +3,22 @@
 启动命令（开发）：
     uvicorn app.main:app --reload --port 8000
 """
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
+from app.api.v1.audit import audit_router
 from app.api.v1.auth import auth_router, parent_router
 from app.config import settings
 from app.core.exceptions import APIException
 from app.core.middleware import AuthMiddleware
+
+# 前端静态页目录：app/main.py → chemai-backend/frontend/pages
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "pages"
 
 app = FastAPI(
     title="ChemAI 智辅化学 API",
@@ -56,8 +64,21 @@ def _validation_exception_handler(request: Request, exc: RequestValidationError)
 
 app.add_middleware(AuthMiddleware)
 
+# 前端开发跨源（桌面端本地调试 / 未来独立部署）
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(parent_router, prefix="/api/parent", tags=["parent"])
+app.include_router(audit_router, prefix="/api/question", tags=["question"])
+
+# 静态页托管：/pages/login.html、/pages/exam-v2.html
+app.mount("/pages", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="pages")
 
 
 @app.get("/health")

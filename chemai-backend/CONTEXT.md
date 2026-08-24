@@ -78,7 +78,10 @@
 - **蓝本题（Blueprint Question）**：变体生成所基于的源真题，其知识点/难度/正文注入 LLM prompt。
 - **变体（Variant）**：五类变体维度——数值变体、物质替换、选项重组、题干重写、难度调整。
 - **四维安全审核（Four-Dimensional Audit）**：系数配平 / 反应条件 / 产物正确性 / 分子结构四维度审核，配平要求 100% 准确率。
-- **审核状态（Audit Status）**：`passed 通过 / warning 警告 / blocked 阻断`；阻断题不可下发给学生。
+- **题目四维审核（Four-Dimension Review）**：AI 生成题目的质量审核，区别于四维安全审核（后者审核方程式正确性，前者审核整道题质量，是两套独立系统）。四维度——科学性 / 难度匹配 / 知识点覆盖 / 区分度；每维 0-100 分，综合为加权和（科学性×0.4 + 难度×0.25 + 知识×0.2 + 区分×0.15）。
+- **审核状态（Audit Status）**：`passed 通过 / warning 警告 / blocked 阻断`；阻断题不可下发给学生。题目级综合分映射：≥80 通过 / 70-79 警告 / <70 阻断；科学性单维 <70 直接阻断。
+- **审核状态机（Audit State Machine）**：passed → 教师 approve 入库；warning → 教师 approve 放行（带复核标记）或打回重生成；blocked → 自动重生成 ≤3 次（每次重新两层审核），3 次仍 blocked → 标记"出题失败"（不自动替换，教师决定是否手动替换）。
+- **审核触发范围（Audit Trigger Scope）**：AI 生成走两层审核；手动录入/OCR 导入只过方程式级硬闸（题目级跳过）；balance_equation 工具只跑方程式级；学生对话/实验模拟本次不纳入。
 - **考试状态机（Exam State）**：`Draft 草稿 → AddingQuestions 添加题目 → Published 已发布 → InProgress 进行中 → Completed 完成`（API 层另有 Finalized 终结统计）。
 - **向量检索（Vector Retrieval）**：ChromaDB 检索真题，两层策略——关键词 Top-20 缩小候选 + 向量精筛 Top-K。
 - **知识图谱（Knowledge Graph）**：以 category 分类的扁平结构存储约 20+ 核心知识点（含 related_kps 关联边），支撑出题与诊断。
@@ -147,3 +150,4 @@
 - **L2 集成评测（L2 Integration）**：API 端点行为评测，通过标准 ≥90%，每个工具组完成时触发。
 - **L3 质量评测（L3 Quality）**：AI 内容质量评测（科学性/诊断准确率/辅导安全），通过标准 ≥70%。
 - **指标口径（Core Metrics）**：路由准确率 ≥85%、诊断覆盖率 >90%、OCR 准确率 >95%、选择题批改准确率 >99%。
+- **审核验收指标（Audit Acceptance）**：方程式级 86/86 确定性测试 100%（配平红线）、条件/产物召回率 ≥80%；题目级科学性准确率 ≥75%；两层合成 overall_status 判定正确率 ≥90%。
