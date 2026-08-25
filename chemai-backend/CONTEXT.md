@@ -27,7 +27,7 @@
 - **家长通知（ParentNotification）**：推送给家长的消息，含类型（学习报告/预警提醒/教师消息）与已读状态。
 - **预警日志（WarningLog）**：学情预警记录，追踪是否已通知教师/家长/学生本人。
 - **复习任务（ReviewTask）**：错题自动创建的间隔复习任务，按艾宾浩斯 6 级安排。
-- **障碍配置（BarrierConfig）**：教师自定义的班级诊断阈值配置（各障碍阈值 + 掌握标准 + 自动同步开关）。
+- **障碍配置（BarrierConfig）**：教师的诊断阈值配置（teacher_id 唯一，默认连续错误 3 / 连续正确 2 / 低分 3 / 预警 3 / 启用 false），`GET/PUT /api/diagnosis/config/{teacher_id}` upsert、部分字段更新不重置其余；启用且连续错误 ≥ 阈值时对应作答 `diagnosis_flag=needs_attention`。
 
 ---
 
@@ -51,16 +51,50 @@
 - **概念理解型（concept）**：不理解底层化学概念与原理，停留在记忆层面；典型表现是混淆相似概念、无法解释推理。
 - **审题障碍型（reading）**：读题不完整或落入陷阱，信息提取不足；典型表现是概念掌握但答非所问、遗漏关键词。
 - **表述障碍型（expression）**：理解正确但表达不规范，化学用语书写不合规；典型是方程式书写错、漏写单位/有效数字。
-- **规则引擎初筛（Rule Engine Pre-screening）**：基于关键词规则库的低成本预分类，置信度控制在 0.5-0.7，未来作为 LLM 的校验与降级兜底。
-- **LLM 深度分析（LLM Deep Analysis）**：以教育心理学专家角色，综合历史错题/题目/作答/答案四输入给出 `barrier_type + confidence + reasoning + suggestion`。
-- **综合判定（Aggregation）**：按置信度三级采纳——≥0.8 自动采纳、0.7-0.8 采纳但标注需关注、<0.7 建议人工复核。
-- **置信度（Confidence）**：LLM 诊断对判定结论的自信心值，范围 0.0-1.0。
+- **规则引擎（ChemistryRuleEngine）**：基于 22 条化学迷思概念 YAML 规则（6 大知识板块）的关键词计数 + 正则匹配，输出 `top_diagnosis{barrier_type, category, name, confidence}`；是融合引擎的一路（权重 0.6）。global 配置：min_keyword_match=2 / min_pattern_match=1 / confidence_base=0.85 / keyword_weight=0.4 / pattern_weight=0.6。
+- **LLM 深度分析（LLM Deep Analysis）**：以资深化学教师角色，Few-shot（3 示例）+ 四输入（题目≤500字 / 学生答案 / 正确答案 / 历史错题≤5条，可选 grade/avg_score/mastery_level 兜底），输出核心四字段 `barrier_type + reasoning + confidence + suggestion` + 可选 `detail{recommended_practice}`；JSON 解析四重硬化（四字段齐全校验 / 围栏→整串→首块固定解析序 / response_format 按 provider 能力切换——qwen 支持 json_object、mimo/deepseek 自由文本 / 纠错重试携带先前错误），非法响应重试 ≤3 后返回 `source=llm` 错误信号。
+- **置信度融合（Confidence Fusion）**：加权融合两路输出 `fused_conf = clamp(0.6×rule_conf + 0.4×llm_conf, 0, 1)`（权重非归一化自动归一化）；冲突检测按 barrier_type，按冲突消解决策表裁定；融合结果平铺落库到 StudentAnswer 诊断列（fused_conf/rule_conf/llm_conf/diagnosis_flag/diagnosis_version/diagnosis_source/diagnosis_detail），`barrier_type` 为落库主判。
+- **置信度标签（Confidence Level）**：<0.6 `low` / 0.6-0.8 `medium` / ≥0.8 `high`。
 - **学生障碍画像（Barrier Profile）**：学生障碍类型分布 JSON `{"concept":0.30,"reading":0.50,"expression":0.20}`（和为 1），由诊断引擎异步聚合更新。
 - **主导障碍类型（dominant_barrier）**：障碍画像中占比最高的类型，用于学生卡片与班级分布统计。
 - **教师覆盖（Override）**：教师手动推翻 AI 诊断的机制，覆盖时按 90%/5%/5% 写入新画像并记录操作日志。
 - **干预建议（Intervention Suggestion）**：按障碍类型给出的差异化学习建议（概念→思维导图、审题→划线法、表述→规范化训练）。
 - **严重度标记（Severity Mark）**：障碍占比 ≥60% 红色 / 40-60% 黄色 / <40% 绿色。
-- **诊断配置阈值（Barrier Config Thresholds）**：concept_threshold=3 / reading_threshold=2 / expression_threshold=3 / mastery_threshold=3 / auto_sync_to_student=false。
+- **化学迷思概念规则库（Chemistry Misconception Rule Base）**：22 条 YAML 规则，6 大知识板块——化学平衡(RULE_001-004) / 氧化还原(RULE_005-008) / 摩尔计算(RULE_009-012) / 有机化学(RULE_013-016) / 化学用语(RULE_017-020) / 物构知识(RULE_021-022)；每条规则含 id/category/name/barrier_type/keywords/anti_keywords/patterns/severity/confidence_modifier/remediation_points/related_questions。
+- **反关键词（anti_keywords）**：规则内的排除项，命中即排除该规则（如"理解错题意"命中则排除 concept 规则）。
+- **知识板块（Knowledge Category）**：迷思概念的组织维度（化学平衡等 6 类），作为补救建议的附加信息，不进入数据库字段。
+- **Few-shot 提示（Few-shot Prompt）**：LLM 诊断 prompt 内置 3 组示例（勒夏特列 / 氧化还原 / 摩尔单位），覆盖不同知识板块，稳定输出格式。
+- **冲突消解决策表（Conflict Resolution Decision Table）**：两路一致高置信→直接融合；单侧高（rule_conf≥0.85 或 llm_conf≥0.9）→以高置信侧为准；双高冲突（两侧均高且类别不一致）→`diagnosis_flag=manual_review`；双低冲突→取高侧+`manual_review`；仅单路→按该路权重折算（0.6×rule 或 0.4×llm）并以源置信度打标。
+- **诊断标志（diagnosis_flag）**：`normal` / `manual_review`（冲突待人工） / `needs_attention`（config 接线：启用且连续错误≥阈值） / `error`（诊断失败持久化）；来源 `diagnosis_source`：`rule / llm / fused / error`。
+- **教师覆盖与冻结（Override & Freeze）**：`PUT /api/diagnosis/override/{student_id}` 按 90%/5%/5% 写入新画像、刷新 `barrier_last_updated`、置 `barrier_frozen=True` 并留痕 `BarrierOverrideLog`；冻结使聚合跳过该生，`DELETE /override/{student_id}` 显式解除冻结后恢复聚合。
+- **教师覆盖日志（BarrierOverrideLog）**：覆盖操作的操作日志表（teacher_id / student_id / before / after / reason / created_at），支持回溯。
+- **run-llm 批量诊断（Batch Diagnosis）**：`POST /api/diagnosis/run-llm`（body `{exam_id, limit≤10}`），每次 ≤10 条未诊断错误作答（`barrier_type IS NULL` 优先），ThreadPoolExecutor(5) 并发调 LLM（子线程纯 LLM IO、不碰 session），主线程单事务融合落库 + 聚合；单条失败持久化 `diagnosis_flag=error` + 原因留痕且 `barrier_type` 保持 NULL 可重跑，其余正常落库。
+- **画像聚合（Barrier Profile Aggregation）**：五步——查已诊断错误作答→按类型计数→归一化占比（`total or 1` 防除零、保留两位、补零保三键 `{concept/reading/expression}`）→写 `Student.barrier_profile`→更新 `barrier_last_updated`；跳过 `barrier_frozen=True` 的学生。
+- **诊断配置阈值（Barrier Config Thresholds）**：consecutive_error_threshold=3 / consecutive_correct_threshold=2 / low_score_threshold=3 / warning_threshold=3 / enabled=false（默认）；PUT 按 teacher_id upsert、仅更新出现字段；启用且连续错误 ≥ 阈值时对应作答标 `needs_attention`。
+
+### 诊断引擎架构（Dual-Engine Architecture）
+
+```
+学生错题作答
+   │
+   ├─→ 规则引擎（22条YAML规则, 权重0.6, 精确率~90%）
+   │    关键词计数 + 正则匹配, anti_keywords 排除
+   │
+   ├─→ LLM 深度诊断（Few-shot×3, 权重0.4, 召回率~85%）
+   │    四输入 + JSON Schema 输出
+   │
+   └───────────────┬───────────────────┘
+                   ▼
+            置信度融合 fused = clamp(0.6×rule + 0.4×llm, 0, 1)
+                   ▼
+            冲突消解（按 barrier_type 决策表）
+                   ▼
+        StudentAnswer.barrier_type ──聚合──▶ Student.barrier_profile
+```
+
+**融合策略**：规则引擎擅长已编目的已知模式（高精确率 ~90%），LLM 覆盖语义变体与新模式（高召回率 ~85%），加权融合在精确率与召回率之间平衡；融合结果（fused_conf/rule_conf/llm_conf/flag/来源/详情）平铺落库到 StudentAnswer 诊断列，`barrier_type` 为落库主判。
+
+**冲突消解决策表概要**：两路一致高置信→直接融合；`rule_conf≥0.85` 或 `llm_conf≥0.9` 时单侧消解冲突；双低冲突→"需人工审核"（写较高侧+标记）；仅单路→按该路权重折算；置信度标签 <0.6 `low` / 0.6-0.8 `medium` / ≥0.8 `high`。
 
 ---
 

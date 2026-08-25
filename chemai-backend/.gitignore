@@ -9,6 +9,8 @@ data/chroma/
 data/exam_bank/
 node_modules/
 dist/
+build/
+*.egg-info/
 .pytest_cache/
 .coverage
 htmlcov/

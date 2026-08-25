@@ -145,3 +145,15 @@ class StudentAnswer(Base):
     )
     consecutive_errors: Mapped[int] = mapped_column(Integer, default=0)
     consecutive_correct: Mapped[int] = mapped_column(Integer, default=0)
+    # 平铺诊断列（评审 T2）：融合置信度 / 判定标志 / 版本 / 来源 / 详情
+    fused_conf: Mapped[float | None] = mapped_column(nullable=True)
+    rule_conf: Mapped[float | None] = mapped_column(nullable=True)
+    llm_conf: Mapped[float | None] = mapped_column(nullable=True)
+    diagnosis_flag: Mapped[str] = mapped_column(
+        String(20), default="none"
+    )  # none/manual_review/needs_attention/error
+    diagnosis_version: Mapped[str] = mapped_column(String(20), default="")
+    diagnosis_source: Mapped[str] = mapped_column(String(10), default="")  # rule/llm/fused/error
+    diagnosis_detail: Mapped[dict] = mapped_column(
+        MutableDict.as_mutable(JSON), default=dict
+    )  # reasoning/suggestion/recommended_practice/error

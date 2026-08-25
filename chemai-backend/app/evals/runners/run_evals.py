@@ -20,6 +20,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.evals.cases import composite_correctness
+from app.evals.diagnosis import DIAGNOSIS_PASS_RATE, evaluate_diagnosis_barrier
 from app.services.audit.review import (
     FallbackReviewLLMClient,
     ReviewLLMError,
@@ -107,6 +108,17 @@ def main(argv: list[str] | None = None) -> int:
             results["review_scientificity"] = accuracy
             if accuracy < L3_PASS_RATE:
                 failures.append(f"review_scientificity {accuracy:.0%} < {L3_PASS_RATE:.0%}")
+
+        # 9.1a 障碍诊断 L3（mock LLM，无需 llm_api_key）：结构断言 + 准确率代理 ≥70%
+        diag = evaluate_diagnosis_barrier()
+        diag_status = "PASS" if diag["structural"] and diag["accuracy"] >= DIAGNOSIS_PASS_RATE else "FAIL"
+        print(
+            f"[l3] diagnosis_barrier: 结构 {'OK' if diag['structural'] else 'FAIL'} "
+            f"准确率 {diag['accuracy']:.0%} {diag_status}"
+        )
+        results["diagnosis_barrier"] = diag["accuracy"]
+        if diag_status == "FAIL":
+            failures.append(f"diagnosis_barrier 结构或准确率不合格")
 
     _degradation_guard(results, args.compare)
     if failures:

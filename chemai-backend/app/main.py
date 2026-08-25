@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.audit import audit_router
 from app.api.v1.auth import auth_router, parent_router
+from app.api.v1.diagnosis import diagnosis_router
 from app.api.v1.exam import classes_router, exam_router
 from app.api.v1.exam_bank import exam_bank_router
 from app.config import settings
@@ -107,6 +108,7 @@ app.include_router(audit_router, prefix="/api/question", tags=["question"])
 app.include_router(exam_bank_router, prefix="/api/exam-bank", tags=["exam-bank"])
 app.include_router(exam_router, prefix="/api/exam", tags=["exam"])
 app.include_router(classes_router, prefix="/api", tags=["org"])
+app.include_router(diagnosis_router, prefix="/api/diagnosis", tags=["diagnosis"])
 
 # 静态页托管：/pages/login.html、/pages/exam-v2.html
 app.mount("/pages", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="pages")

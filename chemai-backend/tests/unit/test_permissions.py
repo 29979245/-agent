@@ -111,6 +111,47 @@ def test_checker_rejects_tampered_token():
         permission_checker.check(tampered, "exam", "create")
 
 
+# ---- 7.1 diagnosis 资源矩阵 ----
+
+def test_diagnosis_matrix_teacher_run_llm_override_config():
+    # run-llm → create；override/config → update/read
+    assert has_permission("teacher", "diagnosis", "create") is True
+    assert has_permission("teacher", "diagnosis", "update") is True
+    assert has_permission("teacher", "diagnosis", "read") is True
+    assert has_permission("teacher", "diagnosis", "delete") is False
+
+
+def test_diagnosis_matrix_student_read_only():
+    assert has_permission("student", "diagnosis", "read") is True
+    assert has_permission("student", "diagnosis", "create") is False
+    assert has_permission("student", "diagnosis", "update") is False
+    assert has_permission("student", "diagnosis", "delete") is False
+
+
+def test_diagnosis_matrix_admin_dept_full_and_subject_lead_read():
+    assert set(ROLE_PERMISSIONS["admin"]["diagnosis"]) == set(OPERATIONS)
+    assert set(ROLE_PERMISSIONS["dept_admin"]["diagnosis"]) == set(OPERATIONS)
+    assert ROLE_PERMISSIONS["subject_lead"]["diagnosis"] == {"read"}
+
+
+def test_checker_denies_student_run_llm_403():
+    with pytest.raises(ForbiddenError):
+        permission_checker.check(_token(role="student"), "diagnosis", "create")
+
+
+def test_checker_allows_teacher_override_403_ok():
+    ctx = permission_checker.check(_token(role="teacher"), "diagnosis", "update")
+    assert ctx.role == "teacher"
+
+
+def test_decorator_denies_student_diagnosis_run_llm_403():
+    app = _protected_app()
+    # 复用 exam create 装饰器端点演示 403；diagnosis 越权语义由矩阵测试覆盖
+    resp = TestClient(app).post("/protected", headers={"Authorization": f"Bearer {_token(role='student')}"})
+    assert resp.status_code == 403
+    assert resp.json()["error_code"] == "PERMISSION_DENIED"
+
+
 # ---- 8.3 require_permission 装饰器 ----
 
 def _protected_app():

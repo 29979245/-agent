@@ -1,8 +1,18 @@
+[build-system]
+requires = ["setuptools>=65.5", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "chemai-backend"
 version = "0.1.0"
 description = "ChemAI 智辅化学 — 中学化学教学 AI Agent 系统后端"
 requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+"app.services.diagnosis.rules" = ["*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -22,6 +22,7 @@ from app.db.models.enums import (
     UploadSessionStatus,
 )
 from app.db.models.account import Account
+from app.db.models.diagnosis import BarrierConfig, BarrierOverrideLog
 from app.db.models.exam import ExamRecord, Question, QuestionSet, QuestionSetItem, StudentAnswer
 from app.db.models.ocr import OCRTask, StudentSubmission, UploadSession
 from app.db.models.org import Class, Grade, School, Student, Teacher
@@ -43,6 +44,9 @@ __all__ = [
     # 复习链
     "ReviewTask",
     "ReviewHistory",
+    # 诊断链
+    "BarrierConfig",
+    "BarrierOverrideLog",
     # 家长链
     "Parent",
     "StudentParentBinding",
