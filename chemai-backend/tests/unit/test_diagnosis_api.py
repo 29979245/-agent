@@ -90,6 +90,16 @@ def _org(db_session):
     return school, grade, cls
 
 
+def _org_under_school(db_session, school_id):
+    grade = Grade(school_id=school_id, name="高一", academic_year="2026")
+    db_session.add(grade)
+    db_session.flush()
+    cls = Class(grade_id=grade.id, name="1班")
+    db_session.add(cls)
+    db_session.flush()
+    return cls
+
+
 def _account(db_session, username, role, role_id):
     acc = Account(username=username, password_hash=hash_password("Passw0rd!"), role=role, role_id=role_id)
     db_session.add(acc)
@@ -417,9 +427,50 @@ def test_student_own_history_ok_other_403(client, db_session):
 
 # ---------------- 8.3 教师覆盖与配置 ----------------
 
+def test_override_cross_school_forbidden(client, db_session):
+    """越权修复：教师不可覆盖其他学校学生画像（组织链隔离）。"""
+    token, teacher = _teacher_token(client, db_session)  # A 校教师
+    school_b = School(name="B校")
+    db_session.add(school_b)
+    db_session.flush()
+    grade_b = Grade(school_id=school_b.id, name="高一", academic_year="2026")
+    db_session.add(grade_b)
+    db_session.flush()
+    cls_b = Class(grade_id=grade_b.id, name="1班")
+    db_session.add(cls_b)
+    db_session.flush()
+    stu = Student(class_id=cls_b.id, name="外校生")
+    db_session.add(stu)
+    db_session.commit()
+
+    resp = client.put(f"/api/diagnosis/override/{stu.id}", headers=_auth(token),
+                      json={"barrier_type": "concept", "weights": [90, 5, 5], "reason": "跨校"})
+    assert resp.status_code == 403
+    resp = client.get(f"/api/diagnosis/override/{stu.id}", headers=_auth(token))
+    assert resp.status_code == 403
+    resp = client.delete(f"/api/diagnosis/override/{stu.id}", headers=_auth(token))
+    assert resp.status_code == 403
+
+
+def test_config_other_teacher_forbidden(client, db_session):
+    """越权修复：教师不可读写其他教师诊断配置。"""
+    token, teacher = _teacher_token(client, db_session)
+    school = db_session.get(School, teacher.school_id)
+    other = Teacher(school_id=school.id, name="李老师", phone="13800000009",
+                    status=TeacherStatus.approved)
+    db_session.add(other)
+    db_session.commit()
+
+    resp = client.get(f"/api/diagnosis/config/{other.id}", headers=_auth(token))
+    assert resp.status_code == 403
+    resp = client.put(f"/api/diagnosis/config/{other.id}", headers=_auth(token),
+                      json={"enabled": True})
+    assert resp.status_code == 403
+
+
 def test_override_write_freeze_and_log(client, db_session):
     token, teacher = _teacher_token(client, db_session)
-    _, _, cls = _org(db_session)
+    cls = _org_under_school(db_session, teacher.school_id)
     stu = Student(class_id=cls.id, name="张三", barrier_profile={"concept": 0.6, "reading": 0.3, "expression": 0.1})
     db_session.add(stu)
     db_session.commit()
@@ -459,8 +510,8 @@ def test_override_write_freeze_and_log(client, db_session):
 
 def test_override_freeze_aggregation_chain(client, db_session):
     """9.1b 冻结链路：覆盖→冻结→聚合跳过→解除→聚合恢复。"""
-    token, _ = _teacher_token(client, db_session)
-    _, _, cls = _org(db_session)
+    token, teacher = _teacher_token(client, db_session)
+    cls = _org_under_school(db_session, teacher.school_id)
     exam = _seed_exam(db_session, cls)
     q = _seed_question(db_session)
     stu = Student(class_id=cls.id, name="张三")

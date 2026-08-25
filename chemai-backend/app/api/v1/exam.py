@@ -11,8 +11,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import ForbiddenError
 from app.core.permissions import require_permission
-from app.db.models import Class
+from app.db.models import Account, Class
 from app.db.models.enums import ExamType
 from app.db.session import get_db
 from app.services.question.exam_service import ExamService
@@ -46,6 +47,17 @@ def _parse_date(raw: str) -> datetime.date:
         return datetime.date.fromisoformat(raw)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"无效日期：{raw}")
+
+
+def _role_id(db: Session, user) -> int:
+    """把 account.id 解析为业务实体 id（teacher.id / student.id）。"""
+    account = db.get(Account, user.user_id)
+    return account.role_id if account else user.user_id
+
+
+def _student_cannot_access(db: Session, user, target_student_id: int) -> bool:
+    """student 仅可读自身作答（组织链隔离；跨学生访问即 403）。"""
+    return user.role == "student" and _role_id(db, user) != target_student_id
 
 
 @exam_router.get("")
@@ -106,7 +118,12 @@ def list_questions(
     exam_id: int,
     db: Session = Depends(get_db),
 ) -> dict:
-    return {"exam_id": exam_id, "items": ExamService(db).list_questions(exam_id)}
+    # 学生读卷不得携带答案与解析（防止整卷答案泄漏）；教师保留完整题目
+    include_answer = request.state.user.role != "student"
+    return {
+        "exam_id": exam_id,
+        "items": ExamService(db).list_questions(exam_id, include_answer=include_answer),
+    }
 
 
 @exam_router.delete("/{exam_id}/questions/{question_id}")
@@ -177,6 +194,8 @@ def exam_results(
     exam_id: int,
     db: Session = Depends(get_db),
 ) -> dict:
+    if request.state.user.role == "student":
+        raise ForbiddenError()  # 全班成绩总览仅教师+
     return ExamService(db).results(exam_id)
 
 
@@ -188,6 +207,8 @@ def student_result(
     student_id: int,
     db: Session = Depends(get_db),
 ) -> dict:
+    if _student_cannot_access(db, request.state.user, student_id):
+        raise ForbiddenError()  # 学生仅可读自身作答
     return ExamService(db).student_result(exam_id, student_id)
 
 

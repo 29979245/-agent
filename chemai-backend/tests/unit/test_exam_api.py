@@ -291,3 +291,66 @@ def test_student_read_only(client, db_session):
     resp = client.post("/api/exam/create", headers=_auth(token),
                        json={"class_id": 1, "name": "x"})
     assert resp.status_code == 403
+
+
+def test_student_cannot_read_class_or_others_results(client, db_session):
+    """跨学生泄漏修复：student 读全班成绩/他人作答 403；读自身作答 200。"""
+    token = _teacher_token(client, db_session)
+    _, _, cls = _org(db_session)
+    exam_id = _create_exam(client, token, cls.id)
+    q = Question(content="题A", answer="a", difficulty=Difficulty.easy)
+    db_session.add(q)
+    db_session.commit()
+    client.post(f"/api/exam/{exam_id}/questions", headers=_auth(token), json={"question_ids": [q.id]})
+    client.post(f"/api/exam/{exam_id}/publish", headers=_auth(token))
+    client.post(f"/api/exam/{exam_id}/start-grading", headers=_auth(token))
+    stu = Student(class_id=cls.id, name="张三")
+    db_session.add(stu)
+    db_session.flush()
+    db_session.add(StudentAnswer(student_id=stu.id, question_id=q.id, exam_id=exam_id, is_correct=True))
+    _account(db_session, "s_own", AccountRole.student, stu.id)
+    other = Student(class_id=cls.id, name="李四")
+    db_session.add(other)
+    db_session.commit()
+    login = client.post("/api/auth/login", json={"username": "s_own", "password": "Passw0rd!"})
+    stoken = login.json()["access_token"]
+
+    resp = client.get(f"/api/exam/{exam_id}/results", headers=_auth(stoken))
+    assert resp.status_code == 403  # 全班总览仅教师+
+
+    resp = client.get(f"/api/exam/{exam_id}/result/{stu.id}", headers=_auth(stoken))
+    assert resp.status_code == 200  # 自身作答可读
+    assert resp.json()["answers"][0]["is_correct"] is True
+
+    resp = client.get(f"/api/exam/{exam_id}/result/{other.id}", headers=_auth(stoken))
+    assert resp.status_code == 403  # 他人作答不可读
+
+
+def test_student_questions_without_answer_key(client, db_session):
+    """答案泄漏修复：student 读卷不带 answer/analysis；teacher 保留完整。"""
+    token = _teacher_token(client, db_session)
+    _, _, cls = _org(db_session)
+    exam_id = _create_exam(client, token, cls.id)
+    q = Question(content="题A", answer="正确答案", analysis="解析", difficulty=Difficulty.easy)
+    db_session.add(q)
+    db_session.commit()
+    client.post(f"/api/exam/{exam_id}/questions", headers=_auth(token), json={"question_ids": [q.id]})
+
+    resp = client.get(f"/api/exam/{exam_id}/questions", headers=_auth(token))
+    assert resp.status_code == 200
+    assert resp.json()["items"][0]["answer"] == "正确答案"
+
+    stu = Student(class_id=cls.id, name="张三")
+    db_session.add(stu)
+    db_session.flush()
+    _account(db_session, "s_q", AccountRole.student, stu.id)
+    db_session.commit()
+    login = client.post("/api/auth/login", json={"username": "s_q", "password": "Passw0rd!"})
+    stoken = login.json()["access_token"]
+
+    resp = client.get(f"/api/exam/{exam_id}/questions", headers=_auth(stoken))
+    assert resp.status_code == 200
+    item = resp.json()["items"][0]
+    assert item["content"] == "题A"
+    assert "answer" not in item
+    assert "analysis" not in item

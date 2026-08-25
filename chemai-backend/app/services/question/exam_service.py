@@ -139,10 +139,10 @@ class ExamService:
         sync_question_to_vector(q)  # 5.4 保存入库后增量 append 同步
         return q
 
-    def list_questions(self, exam_id: int) -> list[dict]:
+    def list_questions(self, exam_id: int, include_answer: bool = True) -> list[dict]:
         self._get(exam_id)
         rows = self.db.query(Question).filter_by(record_id=exam_id).all()
-        return [question_dict(q) for q in rows]
+        return [question_dict(q, include_answer=include_answer) for q in rows]
 
     def remove_question(self, exam_id: int, question_id: int) -> None:
         exam = self._get(exam_id)

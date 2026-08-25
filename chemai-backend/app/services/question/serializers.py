@@ -39,15 +39,18 @@ def split_knowledge_points(raw: str | None) -> list[str]:
     return [kp.strip() for kp in (raw or "").split(",") if kp.strip()]
 
 
-def question_dict(q: Question) -> dict:
-    return {
+def question_dict(q: Question, include_answer: bool = True) -> dict:
+    """序列化题目；include_answer=False 时剥离答案与解析（学生端防泄漏）。"""
+    d = {
         "question_id": q.id,
         "content": q.content,
         "options": q.options or [],
-        "answer": q.answer,
-        "analysis": q.analysis or "",
         "knowledge_points": split_knowledge_points(q.knowledge_points),
         "difficulty": q.difficulty.value if q.difficulty else "medium",
         "source": q.source.value if q.source else "manual",
         "audit_status": q.audit_status.value if q.audit_status else "passed",
     }
+    if include_answer:
+        d["answer"] = q.answer
+        d["analysis"] = q.analysis or ""
+    return d

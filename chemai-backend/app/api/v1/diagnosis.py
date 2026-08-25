@@ -32,6 +32,7 @@ from app.db.models import (
     Question,
     Student,
     StudentAnswer,
+    Teacher,
 )
 from app.db.session import get_db
 from app.services.diagnosis.aggregation import normalize_profile, refresh_profiles
@@ -107,6 +108,30 @@ def _pad_dist(dist: dict) -> dict:
 def _ensure_not_student(request: Request) -> None:
     """统计端点仅限教师+（admin/dept_admin/subject_lead/teacher）：学生仅读自身 history（spec 权限场景）。"""
     if request.state.user.role == "student":
+        raise ForbiddenError()
+
+
+def _require_student_in_teacher_school(db: Session, request: Request, student_id: int) -> None:
+    """教师仅可操作本校学生的画像（组织链数据隔离）；admin+ 不限。跨校访问即 403。"""
+    user = request.state.user
+    if user.role != "teacher":
+        return
+    school_id = (
+        db.query(Grade.school_id)
+        .select_from(Student)
+        .join(Class, Class.id == Student.class_id)
+        .join(Grade, Grade.id == Class.grade_id)
+        .filter(Student.id == student_id)
+        .scalar()
+    )
+    teacher = db.get(Teacher, _role_id(db, user))
+    if school_id is None or teacher is None or teacher.school_id != school_id:
+        raise ForbiddenError()
+
+
+def _require_own_config(db: Session, request: Request, teacher_id: int) -> None:
+    """教师仅可读写自身诊断配置；admin+ 可管理任意教师配置。"""
+    if request.state.user.role == "teacher" and _role_id(db, request.state.user) != teacher_id:
         raise ForbiddenError()
 
 
@@ -448,6 +473,7 @@ def override_student(
     student = db.get(Student, student_id)
     if student is None:
         raise NotFoundError()
+    _require_student_in_teacher_school(db, request, student_id)
     teacher_id = _role_id(db, request.state.user)
     before = dict(student.barrier_profile) if isinstance(student.barrier_profile, dict) else {}
     after = _weights_to_profile(payload.weights)
@@ -479,6 +505,7 @@ def unfreeze_student(request: Request, student_id: int, db: Session = Depends(ge
     student = db.get(Student, student_id)
     if student is None:
         raise NotFoundError()
+    _require_student_in_teacher_school(db, request, student_id)
     student.barrier_frozen = False
     db.commit()
     return {"student_id": student.id, "frozen": False}
@@ -487,6 +514,7 @@ def unfreeze_student(request: Request, student_id: int, db: Session = Depends(ge
 @diagnosis_router.get("/override/{student_id}")
 @require_permission("diagnosis", "read")
 def override_history(request: Request, student_id: int, db: Session = Depends(get_db)) -> dict:
+    _require_student_in_teacher_school(db, request, student_id)
     logs = (
         db.query(BarrierOverrideLog)
         .filter(BarrierOverrideLog.student_id == student_id)
@@ -512,6 +540,7 @@ def override_history(request: Request, student_id: int, db: Session = Depends(ge
 @diagnosis_router.get("/config/{teacher_id}")
 @require_permission("diagnosis", "read")
 def get_config(request: Request, teacher_id: int, db: Session = Depends(get_db)) -> dict:
+    _require_own_config(db, request, teacher_id)
     cfg = db.query(BarrierConfig).filter(BarrierConfig.teacher_id == teacher_id).first()
     data = {k: (getattr(cfg, k) if cfg else DEFAULT_CONFIG[k]) for k in DEFAULT_CONFIG}
     return {"teacher_id": teacher_id, **data}
@@ -525,6 +554,7 @@ def put_config(
     payload: ConfigRequest,
     db: Session = Depends(get_db),
 ) -> dict:
+    _require_own_config(db, request, teacher_id)
     cfg = db.query(BarrierConfig).filter(BarrierConfig.teacher_id == teacher_id).first()
     if cfg is None:
         cfg = BarrierConfig(teacher_id=teacher_id)

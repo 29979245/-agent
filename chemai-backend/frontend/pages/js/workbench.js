@@ -48,17 +48,37 @@
     competition: '竞赛',
   };
 
+  // 净化 marked 输出的 HTML：移除 script/style/iframe 等危险标签与事件属性，
+  // 阻断存储型 XSS（题目正文/学生答案经 v-html 注入）。KaTeX 公式不受影响：
+  // v-katex 指令在 v-html 绑定后按文本节点扫描 $..$ 分隔符，净化仅作用于标记输出。
+  function sanitizeHtml(html) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    doc.querySelectorAll('script, style, iframe, object, embed, link, meta, form').forEach((n) => n.remove());
+    doc.querySelectorAll('*').forEach((n) => {
+      Array.from(n.attributes).forEach((attr) => {
+        const name = attr.name.toLowerCase();
+        if (name.startsWith('on')) { n.removeAttribute(attr.name); return; }
+        const val = attr.value.trim().toLowerCase();
+        if ((name === 'href' || name === 'src') && (val.startsWith('javascript:') || val.startsWith('data:'))) {
+          n.removeAttribute(attr.name);
+        }
+      });
+    });
+    return doc.body ? doc.body.innerHTML : '';
+  }
+
   function renderMarkdown(text) {
     if (!text) return '';
     const s = String(text);
     if (window.marked) {
       try {
-        return window.marked.parse ? window.marked.parse(s) : window.marked(s);
+        const html = window.marked.parse ? window.marked.parse(s) : window.marked(s);
+        return sanitizeHtml(html);
       } catch (err) {
         /* fallthrough */
       }
     }
-    return s.replace(/\n/g, '<br>');
+    return sanitizeHtml(s.replace(/\n/g, '<br>'));
   }
 
   // 组装展示卡片：提交载荷 + 后端响应（generate 不返回内容，需用载荷补全）
