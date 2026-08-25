@@ -9,17 +9,22 @@
 审核触发范围按题目来源区分（设计 D7）：question.source == "ai" 走两层审核；
 manual / ocr 只过方程式级硬闸（题目级跳过）。
 """
+import io
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
 from app.core.permissions import require_permission
-from app.db.models import Question
+from app.db.models import ExamRecord, Question
 from app.db.models.enums import AuditStatus, Difficulty, QuestionSource
 from app.db.session import get_db
+from app.services.question.export import export_paper_docx, render_paper_pdf
+from app.services.question.serializers import question_dict
+from app.services.question.vector import sync_question_to_vector
 from app.services.audit.review import FallbackReviewLLMClient, ReviewLLMClient
 from app.services.audit.state_machine import (
     AuditState,
@@ -218,11 +223,52 @@ def approve(
         extra={"event": "question_approved", "question_id": question.id,
                "overall": current_status, "review_flag": next_state.review_flag},
     )
+    # 保存入库后增量同步向量索引（vector-retrieval spec：新题入库触发索引同步）
+    try:
+        sync_question_to_vector(question)
+    except Exception:  # noqa: BLE001 —— 向量同步失败不阻断批准
+        logging.getLogger(__name__).warning("vector sync failed for question %s", question.id)
     return {
         "question_id": question.id,
         "status": "approved",
         "review_flag": next_state.review_flag,
     }
+
+
+@audit_router.get("/export/{record_id}")
+@require_permission("question", "update")
+def export_exam(
+    request: Request,
+    record_id: int,
+    format: str = Query(default="docx"),
+    with_answers: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> Response:
+    """导出试卷（设计 §10.1）：GET /api/question/export/{record_id}?format=docx|pdf&with_answers=true。"""
+    exam = db.get(ExamRecord, record_id)
+    if exam is None:
+        raise NotFoundError()
+    questions = [question_dict(q) for q in db.query(Question).filter_by(record_id=record_id).all()]
+    filename = f"exam-{record_id}-{'teacher' if with_answers else 'student'}"
+    if format == "docx":
+        buf = export_paper_docx(questions, title=exam.name, with_answers=with_answers)
+        return StreamingResponse(
+            io.BytesIO(buf),
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ),
+            headers={"Content-Disposition": f'attachment; filename="{filename}.docx"'},
+        )
+    if format == "pdf":
+        pdf = render_paper_pdf(questions, title=exam.name, with_answers=with_answers)
+        if pdf is None:
+            raise HTTPException(status_code=500, detail="PDF 转换失败")
+        return StreamingResponse(
+            io.BytesIO(pdf),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}.pdf"'},
+        )
+    raise HTTPException(status_code=400, detail="不支持的导出格式，仅支持 docx / pdf")
 
 
 @audit_router.post("/{question_id}/regenerate")

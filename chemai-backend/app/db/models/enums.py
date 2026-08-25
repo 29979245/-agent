@@ -55,6 +55,17 @@ class Difficulty(str, enum.Enum):
     competition = "competition"
 
 
+class ExamStatus(str, enum.Enum):
+    """考试生命周期六态：草稿/已发布/进行中/阅卷/完成/归档（终态只读）。"""
+
+    draft = "draft"
+    published = "published"
+    in_progress = "in_progress"
+    grading = "grading"
+    completed = "completed"
+    archived = "archived"
+
+
 class AccountRole(str, enum.Enum):
     """账户角色：权限矩阵覆盖 admin/dept_admin/subject_lead/teacher/student；parent 独立路径。"""
 

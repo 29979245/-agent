@@ -22,6 +22,10 @@ class Settings:
     agent_checkpoint_db: str = str(BASE_DIR / "data" / "agent_checkpoints.db")
     agent_memory_db: str = str(BASE_DIR / "data" / "agent_memory.db")
 
+    # 题库与向量库（Group 7.1）：真题库目录（地区/年份/试卷 三层 JSON）与 ChromaDB 持久化路径
+    exam_bank_dir: str = str(BASE_DIR / "data" / "exam_bank")
+    chroma_dir: str = str(BASE_DIR / "data" / "chroma")
+
     # LLM Provider（.env 中覆盖）
     llm_provider: str = "deepseek"   # deepseek / qwen / mimo
     llm_api_key: str = ""

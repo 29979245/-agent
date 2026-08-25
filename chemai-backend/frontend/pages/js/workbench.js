@@ -1,5 +1,6 @@
 /* 出题工作台 Vue 根组件（Vue 3 全局构建，模板在 exam-v2.html 内）。
-   四 Tab：workbench / bank / history / exams；Tab 1 内三子模式 ai / manual / ocr。 */
+   四 Tab：workbench / bank / history / exams；Tab 1 内三子模式 ai / manual / ocr。
+   数据全部来自真实后端（exam-bank / exam / classes / historical）。 */
 (function () {
   'use strict';
 
@@ -23,12 +24,28 @@
     approved: '已入库',
   };
 
+  const AUDIT_STATUS_TEXT = {
+    passed: '已通过',
+    warning: '有警告',
+    blocked: '已阻断',
+    approved: '已入库',
+  };
+
+  // 后端六态：draft / published / in_progress / grading / completed / archived
   const EXAM_STATUS_LABEL = {
-    Draft: '草稿',
-    AddingQuestions: '组卷中',
-    Published: '已发布',
-    InProgress: '进行中',
-    Completed: '已完成',
+    draft: '草稿',
+    published: '已发布',
+    in_progress: '进行中',
+    grading: '阅卷中',
+    completed: '已完成',
+    archived: '已归档',
+  };
+
+  const DIFFICULTY_LABEL = {
+    easy: '容易',
+    medium: '中等',
+    hard: '困难',
+    competition: '竞赛',
   };
 
   function renderMarkdown(text) {
@@ -164,11 +181,23 @@
         knowledge: [],
         questions: [],
         generating: false,
+        // Tab 1 保存到题库文件夹（批准入库时导入）
+        bankSaveSetId: '',
         // Tab 2
         examSets: [],
+        bankAllSets: [],
         selectedSetId: null,
+        bankMeta: null,
         bankQuestions: [],
         selectedBank: [],
+        bankRegion: '',
+        bankYear: '',
+        bankRegions: [],
+        bankYears: [],
+        bankSetPage: 1,
+        bankSetPageSize: 20,
+        bankSetTotal: 0,
+        bankImportSetId: '',
         // Tab 3
         paperTree: [],
         openedRegions: {},
@@ -179,6 +208,15 @@
         classes: [],
         exams: [],
         newExam: { name: '', class_id: '' },
+        examPage: 1,
+        examPageSize: 20,
+        examTotal: 0,
+        edit: { show: false, exam: null, questions: [] },
+        editBank: { set: '', sets: [], questions: [], selected: [] },
+        editHist: { query: '', results: [], selected: [] },
+        exportModal: { show: false, exam: null, format: 'docx', with_answers: false },
+        resultsModal: { show: false, exam: null, data: null },
+        picker: { show: false, ids: [], refs: [], exams: [] },
         // modal + toast
         regen: { show: false, question: null, content: '', answer: '', analysis: '', knowledge_points: '' },
         toastState: { msg: '', isErr: false, visible: false },
@@ -198,6 +236,9 @@
         if (!this.aiKpQuery) return this.knowledge;
         return this.knowledge.filter((k) => k.name.includes(this.aiKpQuery));
       },
+      ownSets() {
+        return this.bankAllSets.filter((s) => !s.is_preset);
+      },
     },
     mounted() {
       if (!window.ChemAuth.requireAuth()) return;
@@ -211,6 +252,20 @@
       renderMarkdown,
       examStatusLabel(s) {
         return EXAM_STATUS_LABEL[s] || s;
+      },
+      difficultyLabel(d) {
+        return DIFFICULTY_LABEL[d] || d || '中等';
+      },
+      auditStatusText(s) {
+        return AUDIT_STATUS_TEXT[s] || s;
+      },
+      // 题型推断：有选项→选择题，否则按题干关键词
+      typeLabel(q) {
+        if (q.options && q.options.length) return '选择题';
+        const c = q.content || '';
+        if (c.includes('配平') || c.includes('计算')) return '计算题';
+        if (c.includes('实验')) return '实验题';
+        return '填空题';
       },
       toast(msg, isErr) {
         this.toastState = { msg, isErr: !!isErr, visible: true };
@@ -314,11 +369,31 @@
 
       // ---- 卡片操作 ----
       async approveQuestion(q) {
+        // 方案1：批准即入库——必须先选保存的题库文件夹，避免产生悬空题
+        if (!this.bankSaveSetId) {
+          this.toast('请先选择保存的题库文件夹（批准即入库）', true);
+          return;
+        }
+        // 先入库（失败则题目仍可见可重试），再批准打标记：保证无"已批准但不可达"的题
         try {
+          const imp = await window.ChemAPI.importQuestions(this.bankSaveSetId, [q.question_id]);
+          const reason = (imp.skipped_reasons || {})[String(q.question_id)] || '';
+          // 审核未通过的题不可批准（blocked 后端批准也会 400），终止并说明
+          if (imp.added === 0 && reason.indexOf('审核未通过') === 0) {
+            this.toast('该题未通过审核，未批准入库（' + reason + '）', true);
+            return;
+          }
           const resp = await window.ChemAPI.approve(q.question_id);
           q.approved = true;
           q.review_flag = !!resp.review_flag;
-          this.toast(q.review_flag ? '已批准入库（带复核标记）' : '已批准入库', false);
+          await this.loadExamSets();
+          const saved = imp.added > 0
+            ? '，已保存到题库文件夹（新增 ' + imp.added + '）'
+            : '（该题已在文件夹中）';
+          this.toast(
+            (q.review_flag ? '已批准入库（带复核标记）' : '已批准入库') + saved,
+            false
+          );
         } catch (err) {
           this.toast((err && err.message) || '批准失败', true);
         }
@@ -368,25 +443,53 @@
           this.toast((err && err.message) || '加载知识点失败', true);
         }
       },
+      // 目录筛选选项：一次性拉取当前教师的全部文件夹（预设置顶 + 我的）
+      async loadBankFilters() {
+        const d = await window.ChemAPI.getExamSets({
+          teacher_id: this.user.user_id,
+          page: 1,
+          page_size: 100,
+        });
+        this.bankAllSets = (d && d.items) || [];
+        this.bankRegions = Array.from(new Set(this.bankAllSets.map((s) => s.region).filter(Boolean))).sort();
+        this.bankYears = Array.from(new Set(this.bankAllSets.map((s) => s.year).filter(Boolean))).sort().reverse();
+      },
       async loadExamSets() {
         try {
-          const d = await window.ChemAPI.getExamSets();
+          await this.loadBankFilters();
+          const d = await window.ChemAPI.getExamSets({
+            teacher_id: this.user.user_id,
+            region: this.bankRegion,
+            year: this.bankYear || undefined,
+            page: this.bankSetPage,
+            page_size: this.bankSetPageSize,
+          });
           this.examSets = (d && d.items) || [];
-          if (this.examSets.length && this.selectedSetId == null) this.selectedSetId = this.examSets[0].id;
+          this.bankSetTotal = (d && d.total) || 0;
+          if (this.selectedSetId == null) this.selectedSetId = this.examSets.length ? this.examSets[0].id : null;
           if (this.selectedSetId != null) await this.selectSet(this.selectedSetId);
         } catch (err) {
           this.toast((err && err.message) || '加载题库失败', true);
         }
       },
+      setBankFilter(which, val) {
+        if (which === 'region') this.bankRegion = val;
+        if (which === 'year') this.bankYear = val;
+        this.bankSetPage = 1;
+        this.loadExamSets();
+      },
+      setBankPage(p) {
+        this.bankSetPage = p;
+        this.loadExamSets();
+      },
       async createExamSet() {
         const name = window.prompt('新建题库名称：');
         if (!name || !name.trim()) return;
         try {
-          const d = await window.ChemAPI.createExamSet(name.trim());
-          const item = (d && d.item) || {};
-          this.examSets.unshift(item);
-          this.selectedSetId = item.id;
-          this.toast('题库已创建（演示数据）', false);
+          await window.ChemAPI.createExamSet({ name: name.trim() });
+          this.selectedSetId = null;
+          await this.loadExamSets();
+          this.toast('题库已创建', false);
         } catch (err) {
           this.toast((err && err.message) || '创建题库失败', true);
         }
@@ -396,11 +499,11 @@
         if (!window.confirm('确认删除该题库？')) return;
         try {
           await window.ChemAPI.deleteExamSet(id);
-          this.examSets = this.examSets.filter((s) => String(s.id) !== String(id));
-          this.selectedSetId = this.examSets.length ? this.examSets[0].id : null;
+          this.selectedSetId = null;
           this.bankQuestions = [];
-          if (this.selectedSetId != null) await this.selectSet(this.selectedSetId);
-          this.toast('题库已删除（演示数据）', false);
+          this.bankMeta = null;
+          await this.loadExamSets();
+          this.toast('题库已删除', false);
         } catch (err) {
           this.toast((err && err.message) || '删除题库失败', true);
         }
@@ -409,34 +512,63 @@
         this.selectedSetId = id;
         this.selectedBank = [];
         try {
-          const d = await window.ChemAPI.searchQuestions(id);
-          this.bankQuestions = (d && d.items) || [];
+          const d = await window.ChemAPI.getExamSetDetail(id);
+          this.bankMeta = { id: d.id, name: d.name, region: d.region, year: d.year, question_count: d.question_count, is_preset: d.is_preset };
+          this.bankQuestions = (d && d.questions) || [];
         } catch (err) {
           this.toast((err && err.message) || '加载题目失败', true);
         }
       },
       toggleBank(q) {
-        const i = this.selectedBank.indexOf(q.id);
+        const i = this.selectedBank.indexOf(q.question_id);
         if (i >= 0) this.selectedBank.splice(i, 1);
-        else this.selectedBank.push(q.id);
+        else this.selectedBank.push(q.question_id);
       },
-      batchAddToExam() {
+      async batchImportToFolder() {
         if (!this.selectedBank.length) {
           this.toast('请先勾选题目', true);
           return;
         }
-        this.toast('已将 ' + this.selectedBank.length + ' 道题加入考试（演示数据）', false);
-        this.selectedBank = [];
+        if (!this.bankImportSetId) {
+          this.toast('请选择导入目标文件夹', true);
+          return;
+        }
+        try {
+          const res = await window.ChemAPI.importQuestions(this.bankImportSetId, this.selectedBank);
+          const target = this.bankImportSetId;
+          this.selectedBank = [];
+          this.toast('已导入 ' + res.added + ' 题，跳过 ' + res.skipped + ' 题', false);
+          await this.loadExamSets();
+          if (String(target) === String(this.selectedSetId)) await this.selectSet(target);
+        } catch (err) {
+          this.toast((err && err.message) || '批量导入失败', true);
+        }
       },
-      batchRemoveFromBank() {
+      async batchAddToExam() {
         if (!this.selectedBank.length) {
           this.toast('请先勾选题目', true);
           return;
         }
+        this.openPicker({ ids: this.selectedBank.slice() });
+      },
+      async batchRemoveFromBank() {
+        if (!this.selectedBank.length) {
+          this.toast('请先勾选题目', true);
+          return;
+        }
+        if (!window.confirm('确认从题库移除 ' + this.selectedBank.length + ' 道题？（题目实体保留，仅解除关联）')) return;
         const ids = this.selectedBank.slice();
-        this.bankQuestions = this.bankQuestions.filter((q) => ids.indexOf(q.id) < 0);
-        this.selectedBank = [];
-        this.toast('已从题库移除 ' + ids.length + ' 道题（演示数据）', false);
+        try {
+          for (const qid of ids) {
+            await window.ChemAPI.removeBankQuestion(this.selectedSetId, qid);
+          }
+          this.selectedBank = [];
+          await this.selectSet(this.selectedSetId);
+          await this.loadExamSets();
+          this.toast('已从题库移除 ' + ids.length + ' 题', false);
+        } catch (err) {
+          this.toast((err && err.message) || '移除失败', true);
+        }
       },
 
       // ---- Tab 3：历史真题库 ----
@@ -457,7 +589,7 @@
       },
       async searchHistory() {
         try {
-          const d = await window.ChemAPI.searchHistorical(this.historyQuery);
+          const d = await window.ChemAPI.searchHistorical({ keyword: this.historyQuery });
           this.historyResults = (d && d.items) || [];
         } catch (err) {
           this.toast((err && err.message) || '搜索失败', true);
@@ -465,12 +597,38 @@
       },
       addVariantFromHistory(h) {
         this.mode = 'ai';
-        this.ai.source_label = '基于 ' + h.source_paper + ' 变体生成 · 相似度 ' + h.similarity;
+        this.ai.source_label = '基于 ' + h.paper + ' 变体生成';
         this.tab = 'workbench';
         this.toast('已设为变体蓝本，回到「出题工作台」生成变体题', false);
       },
       addHistoryToExam(h) {
-        this.toast('已加入考试（演示数据）：题 ' + h.id, false);
+        this.openPicker({ refs: [h.ref_id] });
+      },
+
+      // ---- 加入考试：目标考试选择弹窗 ----
+      async openPicker({ ids = [], refs = [] }) {
+        try {
+          const d = await window.ChemAPI.getExams({ page: 1, page_size: 100 });
+          const exams = (d && d.items) || [];
+          this.picker.exams = exams.filter((e) => e.status === 'draft');
+          this.picker.ids = ids;
+          this.picker.refs = refs;
+          this.picker.show = true;
+        } catch (err) {
+          this.toast((err && err.message) || '加载考试列表失败', true);
+        }
+      },
+      async confirmPickExam(exam) {
+        try {
+          const ids = this.picker.ids.concat(this.picker.refs);
+          const res = await window.ChemAPI.addExamQuestions(exam.exam_id, ids);
+          this.picker.show = false;
+          this.picker.ids = [];
+          this.picker.refs = [];
+          this.toast('已加入考试「' + exam.name + '」：新增 ' + res.added + ' 跳过 ' + res.skipped, false);
+        } catch (err) {
+          this.toast((err && err.message) || '加入考试失败', true);
+        }
       },
 
       // ---- Tab 4：考试列表 ----
@@ -485,11 +643,16 @@
       },
       async loadExams() {
         try {
-          const d = await window.ChemAPI.getExams();
+          const d = await window.ChemAPI.getExams({ page: this.examPage, page_size: this.examPageSize });
           this.exams = (d && d.items) || [];
+          this.examTotal = (d && d.total) || 0;
         } catch (err) {
           this.toast((err && err.message) || '加载考试列表失败', true);
         }
+      },
+      setExamPage(p) {
+        this.examPage = p;
+        this.loadExams();
       },
       async createExam() {
         if (!this.newExam.name.trim()) {
@@ -497,37 +660,207 @@
           return;
         }
         try {
-          const d = await window.ChemAPI.createExam({
+          await window.ChemAPI.createExam({
             name: this.newExam.name.trim(),
             class_id: this.newExam.class_id,
           });
-          const item = (d && d.item) || d;
-          this.exams.unshift(item);
           this.newExam = { name: '', class_id: this.classes.length ? this.classes[0].id : '' };
-          this.toast('考试已创建（演示数据）', false);
+          await this.loadExams();
+          this.toast('考试已创建', false);
         } catch (err) {
           this.toast((err && err.message) || '创建考试失败', true);
         }
       },
-      async examAction(exam, action) {
+      // 每状态操作矩阵
+      examActions(e) {
+        const matrix = {
+          draft: [
+            { key: 'edit', label: '编辑' },
+            { key: 'publish', label: '发布' },
+            { key: 'delete', label: '删除' },
+          ],
+          published: [
+            { key: 'grade', label: '开始阅卷' },
+            { key: 'export', label: '导出' },
+          ],
+          in_progress: [
+            { key: 'grade', label: '开始阅卷' },
+            { key: 'export', label: '导出' },
+          ],
+          grading: [
+            { key: 'finalize', label: '完成统计' },
+            { key: 'export', label: '导出' },
+          ],
+          completed: [
+            { key: 'archive', label: '归档' },
+            { key: 'export', label: '导出' },
+            { key: 'results', label: '看结果' },
+          ],
+          archived: [{ key: 'export', label: '导出' }],
+        };
+        return matrix[e.status] || [];
+      },
+      btnClassFor(a) {
+        return a.key === 'delete' ? 'btn-danger-outline' : 'btn-outline';
+      },
+      async examAction(exam, key) {
         try {
-          if (action === 'publish') {
-            const d = await window.ChemAPI.updateExam(exam.id, { status: 'Published' });
-            if (d && d.item) Object.assign(exam, d.item);
-            this.toast('考试已发布（演示数据）', false);
-          } else if (action === 'delete') {
-            if (!window.confirm('确认删除考试「' + exam.name + '」？')) return;
-            await window.ChemAPI.deleteExam(exam.id);
-            this.exams = this.exams.filter((e) => String(e.id) !== String(exam.id));
-            this.toast('考试已删除（演示数据）', false);
-          } else if (action === 'edit') {
-            this.toast('编辑为演示占位，请到真实后端落地后使用', true);
-          } else if (action === 'export') {
-            this.toast('导出为演示占位，请到真实后端落地后使用', true);
+          if (key === 'edit') {
+            await this.openEditDrawer(exam);
+            return;
           }
+          if (key === 'export') {
+            this.exportModal = { show: true, exam, format: 'docx', with_answers: false };
+            return;
+          }
+          if (key === 'results') {
+            await this.openResults(exam);
+            return;
+          }
+          if (key === 'delete') {
+            if (!window.confirm('确认删除考试「' + exam.name + '」？')) return;
+            await window.ChemAPI.deleteExam(exam.exam_id);
+            this.toast('考试已删除', false);
+            await this.loadExams();
+            return;
+          }
+          const calls = {
+            publish: () => window.ChemAPI.publishExam(exam.exam_id),
+            grade: () => window.ChemAPI.startGrading(exam.exam_id),
+            finalize: () => window.ChemAPI.finalizeExam(exam.exam_id),
+            archive: () => window.ChemAPI.archiveExam(exam.exam_id),
+          };
+          const resp = await calls[key]();
+          this.toast('操作成功：' + (EXAM_STATUS_LABEL[resp.status] || resp.status), false);
+          await this.loadExams();
         } catch (err) {
           this.toast((err && err.message) || '操作失败', true);
         }
+      },
+
+      // ---- 编辑抽屉 ----
+      async openEditDrawer(exam) {
+        this.edit = { show: true, exam, questions: [] };
+        this.editBank = { set: '', sets: [], questions: [], selected: [] };
+        this.editHist = { query: '', results: [], selected: [] };
+        try {
+          const d = await window.ChemAPI.getExamQuestions(exam.exam_id);
+          this.edit.questions = (d && d.items) || [];
+        } catch (err) {
+          this.toast((err && err.message) || '加载考试题目失败', true);
+        }
+      },
+      async removeEditQuestion(q) {
+        if (!window.confirm('确认从考试移除该题？')) return;
+        try {
+          await window.ChemAPI.removeExamQuestion(this.edit.exam.exam_id, q.question_id);
+          this.edit.questions = this.edit.questions.filter((x) => x.question_id !== q.question_id);
+          this.toast('已移除', false);
+        } catch (err) {
+          this.toast((err && err.message) || '移除失败', true);
+        }
+      },
+      // 从题库选入
+      async loadEditBankSets() {
+        try {
+          const d = await window.ChemAPI.getExamSets({ teacher_id: this.user.user_id, page_size: 100 });
+          this.editBank.sets = (d && d.items) || [];
+        } catch (err) {
+          this.toast((err && err.message) || '加载题库失败', true);
+        }
+      },
+      async loadEditBankQuestions() {
+        if (!this.editBank.set) return;
+        try {
+          const d = await window.ChemAPI.getExamSetDetail(this.editBank.set);
+          this.editBank.questions = (d && d.questions) || [];
+          this.editBank.selected = [];
+        } catch (err) {
+          this.toast((err && err.message) || '加载题库题目失败', true);
+        }
+      },
+      toggleEditBankSel(q) {
+        const i = this.editBank.selected.indexOf(q.question_id);
+        if (i >= 0) this.editBank.selected.splice(i, 1);
+        else this.editBank.selected.push(q.question_id);
+      },
+      toggleEditHistSel(h) {
+        const i = this.editHist.selected.indexOf(h.ref_id);
+        if (i >= 0) this.editHist.selected.splice(i, 1);
+        else this.editHist.selected.push(h.ref_id);
+      },
+      skipReasonText(res, idPrefix) {
+        const reasons = (res && res.skipped_reasons) || {};
+        const parts = Object.entries(reasons).map(([id, reason]) => idPrefix + id + '：' + reason);
+        return parts.length ? '（' + parts.join('；') + '）' : '';
+      },
+      // 从题库/真题选入题目到当前编辑考试（source: 'bank' | 'hist'）
+      async addEditFrom(source) {
+        const bank = source === 'bank';
+        const sel = bank ? this.editBank.selected : this.editHist.selected;
+        if (!sel.length) {
+          this.toast('请先勾选题目', true);
+          return;
+        }
+        try {
+          const res = await window.ChemAPI.addExamQuestions(this.edit.exam.exam_id, sel);
+          const reasons = this.skipReasonText(res, bank ? '题' : '');
+          this.toast(
+            '已加入 ' + res.added + ' 题，跳过 ' + res.skipped + (res.skipped > 0 ? reasons : ''),
+            res.added === 0 && res.skipped > 0
+          );
+          const d = await window.ChemAPI.getExamQuestions(this.edit.exam.exam_id);
+          this.edit.questions = (d && d.items) || [];
+          if (bank) this.editBank = { set: '', sets: [], questions: [], selected: [] };
+          else this.editHist = { query: '', results: [], selected: [] };
+        } catch (err) {
+          this.toast((err && err.message) || '加入失败', true);
+        }
+      },
+      // 从真题选入
+      async searchEditHistory() {
+        try {
+          const d = await window.ChemAPI.searchHistorical({ keyword: this.editHist.query });
+          this.editHist.results = (d && d.items) || [];
+          this.editHist.selected = [];
+        } catch (err) {
+          this.toast((err && err.message) || '搜索真题失败', true);
+        }
+      },
+      // ---- 导出 ----
+      async doExport() {
+        const { exam, format, with_answers } = this.exportModal;
+        try {
+          const blob = await window.ChemAPI.exportExam(exam.exam_id, { format, with_answers });
+          const ext = format === 'pdf' ? 'pdf' : 'docx';
+          const name = (exam.name || 'exam') + (with_answers ? '-含答案' : '-无答案') + '.' + ext;
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = name;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          this.exportModal.show = false;
+          this.toast('试卷已下载：' + name, false);
+        } catch (err) {
+          this.toast((err && err.message) || '导出失败', true);
+        }
+      },
+
+      // ---- 看结果 ----
+      async openResults(exam) {
+        this.resultsModal = { show: true, exam, data: null };
+        try {
+          const d = await window.ChemAPI.getExamResults(exam.exam_id);
+          this.resultsModal.data = d;
+        } catch (err) {
+          this.toast((err && err.message) || '加载结果失败', true);
+        }
+      },
+      pct(v) {
+        return (Math.round((v || 0) * 10000) / 100) + '%';
       },
     },
   });

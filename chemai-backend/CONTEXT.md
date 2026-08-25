@@ -16,13 +16,13 @@
 - **学生（Student）**：系统核心实体，存储障碍画像、练习追踪、6 位家长绑定码。
 - **家长（Parent）**：通过绑定码与学生建立亲子关系的监护人。
 - **亲子绑定（StudentParentBinding）**：家长与学生的绑定关系记录，含绑定状态与关系（父亲/母亲/其他监护人）。
-- **考试记录（ExamRecord）**：一次考试/练习/作业记录，归属于班级，含考试类型与错题统计。
+- **考试记录（ExamRecord）**：一次考试/练习/作业记录，归属于班级，含考试类型、名称（name）、六态生命周期状态（status）、发布元数据（question_stats）与错题统计（stats）。
 - **题目（Question）**：一份完整化学试题，含正文、选项、答案、解析、知识点标签、难度、来源、四维审核状态。
 - **学生作答（StudentAnswer）**：学生针对某题目的作答记录，含是否正确、障碍类型标签、连续错误/正确计数。
 - **学生提交（StudentSubmission）**：一次考试中某学生答题卡的独立提交，含原始/批改后图片、答案列表、总分。
-- **真题集（HistoricalExam）**：历年高考真题/模拟题的归类组织（如"全国卷""湖南卷"），是 RAG 知识底座。
-- **真题集条目（QuestionSetItem）**：真题集与题目的多对多关联，含排序字段。
-- **题库文件夹（QuestionSet）**：教师自建的两级题库顶层组织单元，含排序；系统预设文件夹不可删除。
+- **真题集（HistoricalExam）**：历年高考真题/模拟题的归类组织（如"全国卷""湖南卷"），按地区/年份/试卷 JSON 目录加载，是 RAG 知识底座。
+- **题库条目（QuestionSetItem）**：题库文件夹与题目的多对多关联中间表，含排序与加入时间；删除题库只删此关联、题目实体保留。
+- **题库文件夹（QuestionSet）**：教师自建的两级题库顶层组织单元，含名称/所属教师/地区/年份/描述/题目数；系统预设（is_preset）文件夹不可删除。
 - **知识点（KnowledgePoint）**：化学知识点记录，含分类、关联 PubChem 编号、动态错误率；知识图谱节点。
 - **家长通知（ParentNotification）**：推送给家长的消息，含类型（学习报告/预警提醒/教师消息）与已读状态。
 - **预警日志（WarningLog）**：学情预警记录，追踪是否已通知教师/家长/学生本人。
@@ -82,11 +82,11 @@
 - **审核状态（Audit Status）**：`passed 通过 / warning 警告 / blocked 阻断`；阻断题不可下发给学生。题目级综合分映射：≥80 通过 / 70-79 警告 / <70 阻断；科学性单维 <70 直接阻断。
 - **审核状态机（Audit State Machine）**：passed → 教师 approve 入库；warning → 教师 approve 放行（带复核标记）或打回重生成；blocked → 自动重生成 ≤3 次（每次重新两层审核），3 次仍 blocked → 标记"出题失败"（不自动替换，教师决定是否手动替换）。
 - **审核触发范围（Audit Trigger Scope）**：AI 生成走两层审核；手动录入/OCR 导入只过方程式级硬闸（题目级跳过）；balance_equation 工具只跑方程式级；学生对话/实验模拟本次不纳入。
-- **考试状态机（Exam State）**：`Draft 草稿 → AddingQuestions 添加题目 → Published 已发布 → InProgress 进行中 → Completed 完成`（API 层另有 Finalized 终结统计）。
-- **向量检索（Vector Retrieval）**：ChromaDB 检索真题，两层策略——关键词 Top-20 缩小候选 + 向量精筛 Top-K。
+- **考试状态机（Exam State）**：六态生命周期 `Draft创建 → Published发布 → InProgress进行中 → Grading阅卷 → Completed完成 → Archived归档（终态只读）`。Draft 组卷期可增删题、可级联删除；发布（≥1 题）写 question_stats（published/published_at/question_count/total_students）；首生作答进入 InProgress；教师触发进入 Grading（挂接 OCR 批改）；finalize 统计参考人数与班级统计进入 Completed；教师触发归档为终态只读，仅可查看/导出。注：InProgress 由学生端首生作答端点触发（学生模块阶段落地）；当前教师端 start_grading 直接从 Published 一步到 Grading，故列表暂不出现"进行中"态，前端按状态矩阵预留该按钮行。
+- **向量检索（Vector Retrieval）**：ChromaDB（collection `exam_questions`，cosine+HNSW）检索真题；**每知识点一向量**（`::kp-N` 分片）；Embedding 用 DashScope text-embedding-v3（1024 维），不可用回退 MD5 伪向量，维度不匹配自动清库重建；两段检索——关键词 Top-20 缩小候选 + 向量精筛 Top-K；相似题推荐排除自身。
 - **知识图谱（Knowledge Graph）**：以 category 分类的扁平结构存储约 20+ 核心知识点（含 related_kps 关联边），支撑出题与诊断。
 - **三层搜索（Three-Layer Search）**：本地关键词 → 向量召回 → 联网补齐的真题搜索策略。
-- **试卷导出（Paper Export）**：导出 Word/PDF 试卷，`with_answers` 区分学生版/教师版（教师版标红答案、绿标解析）。
+- **试卷导出（Paper Export）**：Word 用 python-docx（A4、SimSun 11pt、密封线、按题型分节、化学式下标富文本）；PDF 用 HTML 报告转 PDF（教师版/学生版，注册 SimSun 保证中文无乱码）；`with_answers` 区分学生版/教师版（教师版标红答案、绿标解析）。
 
 ---
 
