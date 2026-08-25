@@ -1,8 +1,8 @@
 """RBAC 权限矩阵与检查器（8.1-8.3）。
 
 ROLE_PERMISSIONS 是唯一权威数据源：5 角色（admin/dept_admin/subject_lead/teacher/student）
-× 10 资源（school/grade/class/teacher/student/analysis/exam/question/ocr/grading）× 4 操作。
-parent 不入矩阵——走独立认证路径，对矩阵资源默认拒绝（default-deny，F2）。
+× 11 资源（school/grade/class/teacher/student/analysis/exam/question/ocr/grading/diagnosis）
+× 4 操作。parent 不入矩阵——走独立认证路径，对矩阵资源默认拒绝（default-deny，F2）。
 """
 import functools
 
@@ -26,6 +26,7 @@ RESOURCES = [
     "question",
     "ocr",
     "grading",
+    "diagnosis",
 ]
 OPERATIONS = ["create", "read", "update", "delete"]
 MATRIX_ROLES = ["admin", "dept_admin", "subject_lead", "teacher", "student"]
@@ -44,6 +45,7 @@ ROLE_PERMISSIONS: dict[str, dict[str, set[str]]] = {
         "question": {"create", "read", "update"},
         "ocr": {"read"},
         "grading": {"read"},
+        "diagnosis": {"create", "read", "update", "delete"},
     },
     # 只读角色：学科组长对任何资源仅 read（F2）
     "subject_lead": {r: {"read"} for r in RESOURCES},
@@ -58,6 +60,7 @@ ROLE_PERMISSIONS: dict[str, dict[str, set[str]]] = {
         "question": {"create", "read", "update"},
         "ocr": {"create", "read", "update"},
         "grading": {"create", "read", "update"},
+        "diagnosis": {"create", "read", "update"},
     },
     "student": {
         "school": {"read"},
@@ -70,6 +73,7 @@ ROLE_PERMISSIONS: dict[str, dict[str, set[str]]] = {
         "question": {"read"},
         "ocr": set(),
         "grading": set(),
+        "diagnosis": {"read"},
     },
 }
 

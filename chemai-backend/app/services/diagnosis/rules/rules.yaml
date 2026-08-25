@@ -1,0 +1,407 @@
+# 化学障碍诊断规则库（22 条，6 大知识板块）
+#
+# schema 字段：
+#   id               规则编号（RULE_xxx，唯一）
+#   category         知识板块（6 个）
+#   name             规则名称
+#   barrier_type     障碍轴：concept（概念） / expression（表达）—— reading 由 LLM 单独覆盖
+#   keywords         关键词（命中计数，MIN_KEYWORD_MATCH=2）
+#   anti_keywords    反关键词（命中任一即排除本规则）
+#   patterns         正则错误模式（命中任一即触发本规则，MIN_PATTERN_MATCH=1）
+#   severity         严重度 1-5（severity_bonus=(severity-3)*0.05）
+#   confidence_modifier  置信度修正（叠加进公式）
+#   remediation_points   补救建议（融合后按 question_id 去重展示）
+#   related_questions    相关规则（跳转复习链）
+
+rules:
+  # ============ 化学平衡（concept，6 条） ============
+  - id: RULE_001
+    category: 化学平衡
+    name: 勒夏特列方向混淆
+    barrier_type: concept
+    keywords: ["勒夏特列", "平衡", "移动", "升高温度", "降低温度", "增大压强", "减小压强", "放热", "吸热", "方向"]
+    anti_keywords: ["催化剂不改变平衡", "催化剂不影响平衡", "升温向吸热", "降温向放热"]
+    patterns:
+      - "升.{0,10}(温度|温).{0,20}放热"
+      - "降.{0,10}(温度|温).{0,20}吸热"
+      - "增大压强.{0,25}体积增大"
+      - "减小压强.{0,25}体积减小"
+      - "升高温度.{0,20}正反应方向"
+      - "降低温度.{0,20}正反应方向"
+    severity: 3
+    confidence_modifier: 0.05
+    remediation_points:
+      - "勒夏特列原理：改变影响平衡的一个条件，平衡向能减弱这种改变的方向移动"
+      - "升温向吸热方向移动，降温向放热方向移动"
+      - "增压向气体体积减小方向移动，减压向体积增大方向移动"
+    related_questions: [RULE_003, RULE_004]
+
+  - id: RULE_002
+    category: 化学平衡
+    name: 平衡常数与反应速率混淆
+    barrier_type: concept
+    keywords: ["平衡常数", "反应速率", "正反应速率", "逆反应速率", "加快", "减慢", "K"]
+    anti_keywords: ["平衡常数只与温度有关", "K只与温度有关"]
+    patterns:
+      - "平衡常数.{0,12}(速率|快慢)"
+      - "K.{0,6}(速率|快慢)"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "平衡常数 K 只与温度有关，不随浓度、压强、催化剂改变"
+      - "反应速率受浓度、压强、温度、催化剂影响，与平衡常数无关"
+    related_questions: [RULE_001, RULE_004]
+
+  - id: RULE_003
+    category: 化学平衡
+    name: 催化剂影响平衡
+    barrier_type: concept
+    keywords: ["催化剂", "平衡移动", "平衡常数", "转化率", "正逆反应速率"]
+    anti_keywords: ["不改变平衡", "不影响平衡", "不改变平衡常数", "不改变化学平衡", "不改变转化率"]
+    patterns:
+      - "催化剂.{0,12}平衡移动"
+      - "催化剂.{0,12}平衡常数"
+      - "催化剂.{0,12}转化率"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "催化剂等倍改变正逆反应速率，不改变平衡位置与平衡常数"
+      - "催化剂只缩短到达平衡的时间，不提高转化率"
+    related_questions: [RULE_001]
+
+  - id: RULE_004
+    category: 化学平衡
+    name: 浓度商与平衡移动方向
+    barrier_type: concept
+    keywords: ["浓度商", "平衡常数", "Qc", "Qp", "平衡移动", "Q与K"]
+    anti_keywords: []
+    patterns:
+      - "Q.{0,6}(<|>|=).{0,6}K.{0,12}逆向"
+      - "浓度商.{0,12}平衡移动"
+      - "Q.{0,4}(大于|小于).{0,4}K"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "Q>K 平衡逆向移动，Q<K 正向移动，Q=K 达平衡"
+      - "浓度商用当前实际浓度代入平衡常数表达式计算"
+    related_questions: [RULE_001, RULE_002]
+
+  - id: RULE_005
+    category: 化学平衡
+    name: 等效平衡条件混淆
+    barrier_type: concept
+    keywords: ["等效平衡", "恒温恒容", "恒温恒压", "投料", "等比例", "等效"]
+    anti_keywords: []
+    patterns:
+      - "等效平衡.{0,20}(投料|比例|恒温恒容|恒温恒压)"
+      - "恒温恒容.{0,15}等效"
+      - "恒温恒压.{0,15}等效"
+    severity: 3
+    confidence_modifier: 0
+    remediation_points:
+      - "恒温恒容且前后气体计量数不同：折算后各物质物质的量完全相等才等效"
+      - "恒温恒压：折算后各物质比例相同即等效"
+    related_questions: [RULE_001]
+
+  - id: RULE_006
+    category: 化学平衡
+    name: 转化率计算混淆
+    barrier_type: concept
+    keywords: ["转化率", "平衡转化率", "初始浓度", "起始浓度", "变化量", "转化"]
+    anti_keywords: []
+    patterns:
+      - "转化率.{0,15}(初始|起始|总)"
+      - "转化率.{0,10}浓度"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "转化率 = 已转化量 / 初始量 × 100%"
+      - "计算用变化量（平衡时差），勿用剩余量作分母"
+    related_questions: [RULE_001]
+
+  # ============ 氧化还原（concept，4 条） ============
+  - id: RULE_007
+    category: 氧化还原
+    name: 氧化性还原性强弱判断
+    barrier_type: concept
+    keywords: ["氧化性", "还原性", "氧化剂", "还原剂", "氧化产物", "还原产物", "强", "弱"]
+    anti_keywords: []
+    patterns:
+      - "氧化性.{0,12}(强|弱)"
+      - "还原性.{0,12}(强|弱)"
+      - "氧化剂.{0,12}还原性"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "氧化性：氧化剂 > 氧化产物"
+      - "还原性：还原剂 > 还原产物"
+      - "越易失电子，还原性越强；越易得电子，氧化性越强"
+    related_questions: [RULE_008]
+
+  - id: RULE_008
+    category: 氧化还原
+    name: 电子转移方向混淆
+    barrier_type: concept
+    keywords: ["电子转移", "失电子", "得电子", "化合价升高", "化合价降低", "被氧化", "被还原"]
+    anti_keywords: ["升失氧", "降得还"]
+    patterns:
+      - "得电子.{0,10}被氧化"
+      - "失电子.{0,10}被还原"
+      - "化合价升高.{0,8}被还原"
+      - "化合价降低.{0,8}被氧化"
+      - "得电子.{0,8}还原剂"
+      - "失电子.{0,8}氧化剂"
+    severity: 3
+    confidence_modifier: 0.02
+    remediation_points:
+      - "失电子（化合价升高）被氧化，作还原剂"
+      - "得电子（化合价降低）被还原，作氧化剂"
+      - "口诀：升失氧还原剂，降得还氧化剂"
+    related_questions: [RULE_007]
+
+  - id: RULE_009
+    category: 氧化还原
+    name: 基本反应类型与氧化还原判断
+    barrier_type: concept
+    keywords: ["置换反应", "化合反应", "分解反应", "复分解反应", "基本反应类型", "氧化还原反应"]
+    anti_keywords: []
+    patterns:
+      - "复分解反应.{0,8}(是|属于|一定)氧化还原"
+      - "化合反应.{0,8}(一定|全)是氧化还原"
+      - "分解反应.{0,8}(一定|全)是氧化还原"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "复分解反应无化合价变化，一定不是氧化还原反应"
+      - "化合/分解反应不一定是氧化还原，置换反应一定是"
+    related_questions: [RULE_008]
+
+  - id: RULE_010
+    category: 氧化还原
+    name: 离子共存条件判断
+    barrier_type: concept
+    keywords: ["离子共存", "不能共存", "共存", "氧化还原", "双水解", "生成沉淀", "生成气体"]
+    anti_keywords: []
+    patterns:
+      - "离子共存.{0,15}(水解|沉淀|气体|氧化还原)"
+      - "共存.{0,10}(氧化还原|双水解)"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "离子不能共存四原因：生成沉淀、生成气体、生成弱电解质（水）、发生氧化还原"
+      - "Fe3+、MnO4- 等强氧化性离子与 S2-、I-、Fe2+ 等还原性离子不共存"
+    related_questions: [RULE_007]
+
+  # ============ 摩尔计算（concept，4 条） ============
+  - id: RULE_011
+    category: 摩尔计算
+    name: 物质的量与质量混淆
+    barrier_type: concept
+    keywords: ["物质的量", "摩尔质量", "质量", "n", "m", "M", "相对分子质量"]
+    anti_keywords: []
+    patterns:
+      - "物质的量.{0,10}(质量|克).{0,6}(=|等于)"
+      - "质量.{0,8}除以.{0,8}物质的量"
+      - "n.{0,6}=.{0,8}m"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "n = m / M，物质的量与质量通过摩尔质量换算"
+      - "摩尔质量 M 数值上等于相对分子质量，单位 g/mol"
+    related_questions: [RULE_014]
+
+  - id: RULE_012
+    category: 摩尔计算
+    name: 气体摩尔体积条件忽略
+    barrier_type: concept
+    keywords: ["标准状况", "标况", "22.4", "气体摩尔体积", "Vm", "L/mol"]
+    anti_keywords: ["标准状况下", "标况下", "标准状态下", "0℃", "101kPa"]
+    patterns:
+      - "22.4.{0,8}(L|升)"
+      - "气体摩尔体积.{0,12}22.4"
+      - "Vm.{0,6}22.4"
+    severity: 3
+    confidence_modifier: 0.02
+    remediation_points:
+      - "气体摩尔体积 22.4 L/mol 仅适用于标准状况（0℃、101 kPa）"
+      - "非标况下不能用 22.4 L/mol 换算气体物质的量"
+    related_questions: [RULE_011]
+
+  - id: RULE_013
+    category: 摩尔计算
+    name: 阿伏伽德罗常数误用
+    barrier_type: concept
+    keywords: ["阿伏伽德罗", "NA", "6.02×10", "粒子数", "分子数", "原子数", "电子数"]
+    anti_keywords: ["N/NA", "n=N"]
+    patterns:
+      - "1.{0,3}mol.{0,15}NA.{0,6}个分子"
+      - "NA.{0,12}(分子|原子|电子|粒子)数"
+      - "阿伏伽德罗常数.{0,12}(数值|大小)"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "NA 约 6.02×10^23，1 mol 含 NA 个微粒"
+      - "离子化合物（如 NaCl）无分子，不能套用分子数"
+      - "n = N / NA，注意微粒类型（分子/原子/离子/电子）"
+    related_questions: [RULE_011]
+
+  - id: RULE_014
+    category: 摩尔计算
+    name: 浓度单位与计算混淆
+    barrier_type: concept
+    keywords: ["物质的量浓度", "质量分数", "mol/L", "配制", "稀释", "c=n/V"]
+    anti_keywords: []
+    patterns:
+      - "物质的量浓度.{0,10}(质量分数|百分比)"
+      - "浓度.{0,8}等于.{0,8}质量分数"
+      - "c.{0,4}=.{0,8}(质量|质量分数)"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "物质的量浓度 c = n / V，单位 mol/L"
+      - "质量分数 ω = m质 / m液，单位是 1（百分数）"
+      - "稀释前后溶质物质的量不变：c1V1 = c2V2"
+    related_questions: [RULE_011]
+
+  # ============ 有机化学（concept，3 条） ============
+  - id: RULE_015
+    category: 有机化学
+    name: 官能团性质混淆
+    barrier_type: concept
+    keywords: ["官能团", "羟基", "羧基", "醛基", "酯基", "碳碳双键", "酚"]
+    anti_keywords: []
+    patterns:
+      - "羧基.{0,10}(氧化|还原)性"
+      - "醛基.{0,10}酸性"
+      - "羟基.{0,10}氧化性"
+      - "酯基.{0,10}(水解|皂化)"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "醇羟基：可被氧化成醛/酮，与钠反应产生 H2"
+      - "酚羟基：弱酸性，能与 NaOH 反应"
+      - "醛基：能被氧化（银镜/新制Cu(OH)2），不能被还原"
+      - "酯基：能水解（酸或碱催化），碱性水解称皂化"
+    related_questions: [RULE_016]
+
+  - id: RULE_016
+    category: 有机化学
+    name: 同分异构体数目漏算
+    barrier_type: concept
+    keywords: ["同分异构体", "异构体", "数目", "种", "C5H12", "C4H10", "C4H8"]
+    anti_keywords: []
+    patterns:
+      - "同分异构体.{0,18}(种|个|几种|数目)"
+      - "C5H12.{0,12}(异构|种)"
+      - "C4H10.{0,12}(异构|种)"
+    severity: 3
+    confidence_modifier: 0
+    remediation_points:
+      - "同分异构体找法：先定碳骨架（主链逐次缩短），再定位取代基"
+      - "注意对称性去重，防止重复计数"
+    related_questions: [RULE_015]
+
+  - id: RULE_017
+    category: 有机化学
+    name: 有机物系统命名错误
+    barrier_type: concept
+    keywords: ["命名", "主链", "支链", "烃基", "编号", "取代基", "系统命名"]
+    anti_keywords: []
+    patterns:
+      - "命名.{0,12}(主链|编号|取代基)"
+      - "主链.{0,10}命名"
+      - "编号.{0,10}取代基"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "烷烃命名：选最长碳链为主链，编号从离支链最近端开始"
+      - "取代基多时按位次号小者优先排列，简单取代基在前"
+    related_questions: [RULE_015]
+
+  # ============ 化学用语（expression，3 条） ============
+  - id: RULE_018
+    category: 化学用语
+    name: 化学式书写错误
+    barrier_type: expression
+    keywords: ["化学式", "书写", "化合价", "角标", "正价", "负价", "下标"]
+    anti_keywords: []
+    patterns:
+      - "化学式.{0,15}(化合价|角标|下标|书写)"
+      - "化合价.{0,12}(和|代数和).{0,4}零"
+      - "正价.{0,6}负价"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "书写化学式：正价在前、负价在后，化合价代数和为零"
+      - "用交叉法确定角标，注意约分"
+    related_questions: [RULE_019]
+
+  - id: RULE_019
+    category: 化学用语
+    name: 方程式配平或条件缺失
+    barrier_type: expression
+    keywords: ["配平", "化学方程式", "反应条件", "加热", "点燃", "催化剂", "系数", "等号"]
+    anti_keywords: []
+    patterns:
+      - "配平.{0,12}(系数|方程式|等号)"
+      - "化学方程式.{0,10}(条件|点燃|加热|催化剂)"
+      - "方程式.{0,8}配平"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "配平：先配变价元素，再配氧氢，最后检查原子个数守恒"
+      - "标注反应条件（点燃/加热/催化剂/高温）与气体↑沉淀↓符号"
+    related_questions: [RULE_020]
+
+  - id: RULE_020
+    category: 化学用语
+    name: 离子方程式拆写错误
+    barrier_type: expression
+    keywords: ["离子方程式", "拆写", "电荷守恒", "弱电解质", "难溶", "沉淀", "气体", "水"]
+    anti_keywords: []
+    patterns:
+      - "离子方程式.{0,12}(电荷|拆|守恒)"
+      - "离子方程式.{0,18}弱电解质"
+      - "离子方程式.{0,15}(难溶|沉淀)"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "强电解质拆成离子，弱电解质/难溶物/气体/水不拆"
+      - "离子方程式须满足原子守恒与电荷守恒"
+    related_questions: [RULE_018]
+
+  # ============ 物构知识（concept，2 条） ============
+  - id: RULE_021
+    category: 物构知识
+    name: 原子结构微粒数混淆
+    barrier_type: concept
+    keywords: ["质子数", "中子数", "电子数", "核电荷数", "质量数", "原子序数", "核外电子"]
+    anti_keywords: []
+    patterns:
+      - "质量数.{0,10}(电子数|核外电子数).{0,4}(=|等于)"
+      - "质子数.{0,8}中子数.{0,4}(=|等于)"
+      - "质量数.{0,6}等于.{0,6}电子数"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "质量数 = 质子数 + 中子数"
+      - "中性原子：质子数 = 电子数 = 核电荷数 = 原子序数"
+    related_questions: [RULE_022]
+
+  - id: RULE_022
+    category: 物构知识
+    name: 化学键类型判断错误
+    barrier_type: concept
+    keywords: ["化学键", "离子键", "共价键", "金属键", "离子化合物", "共价化合物", "极性"]
+    anti_keywords: []
+    patterns:
+      - "离子化合物.{0,12}(共价键|极性键)"
+      - "共价化合物.{0,12}(离子键)"
+      - "化学键.{0,10}(离子|共价)"
+    severity: 2
+    confidence_modifier: 0
+    remediation_points:
+      - "离子化合物含离子键（活泼金属与活泼非金属/酸根之间）"
+      - "共价化合物只含共价键；铵盐是离子化合物但含共价键"
+      - "含金属元素不一定是离子化合物（如 AlCl3 是共价化合物）"
+    related_questions: [RULE_021]

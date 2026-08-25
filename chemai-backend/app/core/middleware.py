@@ -22,6 +22,7 @@ WHITELIST_PREFIXES = (
     "/api/knowledge/",
     "/api/exam-bank/",
     "/api/question/",
+    "/pages",  # 前端静态页（登录页/工作台）无需鉴权
     "/docs",
     "/openapi.json",
     "/health",

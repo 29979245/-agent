@@ -3,19 +3,56 @@
 启动命令（开发）：
     uvicorn app.main:app --reload --port 8000
 """
+import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
+from app.api.v1.audit import audit_router
 from app.api.v1.auth import auth_router, parent_router
+from app.api.v1.diagnosis import diagnosis_router
+from app.api.v1.exam import classes_router, exam_router
+from app.api.v1.exam_bank import exam_bank_router
 from app.config import settings
 from app.core.exceptions import APIException
 from app.core.middleware import AuthMiddleware
+from app.services.question.historical import reload_bank
+from app.services.question.vector import reload_vector
+
+# 前端静态页目录：app/main.py → chemai-backend/frontend/pages
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "pages"
+
+logger = logging.getLogger(__name__)
+
+
+def startup_services(exam_bank_dir: str | None = None, chroma_dir: str | None = None) -> dict:
+    """启动加载：真题库入内存 + 向量索引初始化；返回统计供日志/测试断言。"""
+    bank = reload_bank(exam_bank_dir or settings.exam_bank_dir)
+    reload_vector(chroma_dir or settings.chroma_dir)
+    logger.info(
+        "[ExamBank] 从 %d 个文件加载了 %d 道真题",
+        bank.loaded_files,
+        bank.loaded_questions,
+    )
+    return {"loaded_files": bank.loaded_files, "loaded_questions": bank.loaded_questions}
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    startup_services()
+    yield
+
 
 app = FastAPI(
     title="ChemAI 智辅化学 API",
     version="0.1.0",
     description="面向中学化学教学的 AI Agent 系统后端。",
+    lifespan=lifespan,
 )
 
 
@@ -56,8 +93,25 @@ def _validation_exception_handler(request: Request, exc: RequestValidationError)
 
 app.add_middleware(AuthMiddleware)
 
+# 前端开发跨源（桌面端本地调试 / 未来独立部署）
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(parent_router, prefix="/api/parent", tags=["parent"])
+app.include_router(audit_router, prefix="/api/question", tags=["question"])
+app.include_router(exam_bank_router, prefix="/api/exam-bank", tags=["exam-bank"])
+app.include_router(exam_router, prefix="/api/exam", tags=["exam"])
+app.include_router(classes_router, prefix="/api", tags=["org"])
+app.include_router(diagnosis_router, prefix="/api/diagnosis", tags=["diagnosis"])
+
+# 静态页托管：/pages/login.html、/pages/exam-v2.html
+app.mount("/pages", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="pages")
 
 
 @app.get("/health")

@@ -2,7 +2,9 @@
 
 删除策略（D8）：组织链是数据隔离边界，删除受限（有子记录则拒绝）。
 """
-from sqlalchemy import JSON, ForeignKey, Integer, String
+from datetime import datetime
+
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -101,6 +103,10 @@ class Student(Base):
     barrier_profile: Mapped[dict] = mapped_column(
         MutableDict.as_mutable(JSON), nullable=False, default=dict
     )
+    barrier_last_updated: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    barrier_frozen: Mapped[bool] = mapped_column(default=False)  # 教师 override 后冻结，聚合跳过
     learning_plan: Mapped[dict] = mapped_column(
         MutableDict.as_mutable(JSON), default=dict
     )

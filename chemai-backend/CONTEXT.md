@@ -16,18 +16,18 @@
 - **学生（Student）**：系统核心实体，存储障碍画像、练习追踪、6 位家长绑定码。
 - **家长（Parent）**：通过绑定码与学生建立亲子关系的监护人。
 - **亲子绑定（StudentParentBinding）**：家长与学生的绑定关系记录，含绑定状态与关系（父亲/母亲/其他监护人）。
-- **考试记录（ExamRecord）**：一次考试/练习/作业记录，归属于班级，含考试类型与错题统计。
+- **考试记录（ExamRecord）**：一次考试/练习/作业记录，归属于班级，含考试类型、名称（name）、六态生命周期状态（status）、发布元数据（question_stats）与错题统计（stats）。
 - **题目（Question）**：一份完整化学试题，含正文、选项、答案、解析、知识点标签、难度、来源、四维审核状态。
 - **学生作答（StudentAnswer）**：学生针对某题目的作答记录，含是否正确、障碍类型标签、连续错误/正确计数。
 - **学生提交（StudentSubmission）**：一次考试中某学生答题卡的独立提交，含原始/批改后图片、答案列表、总分。
-- **真题集（HistoricalExam）**：历年高考真题/模拟题的归类组织（如"全国卷""湖南卷"），是 RAG 知识底座。
-- **真题集条目（QuestionSetItem）**：真题集与题目的多对多关联，含排序字段。
-- **题库文件夹（QuestionSet）**：教师自建的两级题库顶层组织单元，含排序；系统预设文件夹不可删除。
+- **真题集（HistoricalExam）**：历年高考真题/模拟题的归类组织（如"全国卷""湖南卷"），按地区/年份/试卷 JSON 目录加载，是 RAG 知识底座。
+- **题库条目（QuestionSetItem）**：题库文件夹与题目的多对多关联中间表，含排序与加入时间；删除题库只删此关联、题目实体保留。
+- **题库文件夹（QuestionSet）**：教师自建的两级题库顶层组织单元，含名称/所属教师/地区/年份/描述/题目数；系统预设（is_preset）文件夹不可删除。
 - **知识点（KnowledgePoint）**：化学知识点记录，含分类、关联 PubChem 编号、动态错误率；知识图谱节点。
 - **家长通知（ParentNotification）**：推送给家长的消息，含类型（学习报告/预警提醒/教师消息）与已读状态。
 - **预警日志（WarningLog）**：学情预警记录，追踪是否已通知教师/家长/学生本人。
 - **复习任务（ReviewTask）**：错题自动创建的间隔复习任务，按艾宾浩斯 6 级安排。
-- **障碍配置（BarrierConfig）**：教师自定义的班级诊断阈值配置（各障碍阈值 + 掌握标准 + 自动同步开关）。
+- **障碍配置（BarrierConfig）**：教师的诊断阈值配置（teacher_id 唯一，默认连续错误 3 / 连续正确 2 / 低分 3 / 预警 3 / 启用 false），`GET/PUT /api/diagnosis/config/{teacher_id}` upsert、部分字段更新不重置其余；启用且连续错误 ≥ 阈值时对应作答 `diagnosis_flag=needs_attention`。
 
 ---
 
@@ -51,16 +51,50 @@
 - **概念理解型（concept）**：不理解底层化学概念与原理，停留在记忆层面；典型表现是混淆相似概念、无法解释推理。
 - **审题障碍型（reading）**：读题不完整或落入陷阱，信息提取不足；典型表现是概念掌握但答非所问、遗漏关键词。
 - **表述障碍型（expression）**：理解正确但表达不规范，化学用语书写不合规；典型是方程式书写错、漏写单位/有效数字。
-- **规则引擎初筛（Rule Engine Pre-screening）**：基于关键词规则库的低成本预分类，置信度控制在 0.5-0.7，未来作为 LLM 的校验与降级兜底。
-- **LLM 深度分析（LLM Deep Analysis）**：以教育心理学专家角色，综合历史错题/题目/作答/答案四输入给出 `barrier_type + confidence + reasoning + suggestion`。
-- **综合判定（Aggregation）**：按置信度三级采纳——≥0.8 自动采纳、0.7-0.8 采纳但标注需关注、<0.7 建议人工复核。
-- **置信度（Confidence）**：LLM 诊断对判定结论的自信心值，范围 0.0-1.0。
+- **规则引擎（ChemistryRuleEngine）**：基于 22 条化学迷思概念 YAML 规则（6 大知识板块）的关键词计数 + 正则匹配，输出 `top_diagnosis{barrier_type, category, name, confidence}`；是融合引擎的一路（权重 0.6）。global 配置：min_keyword_match=2 / min_pattern_match=1 / confidence_base=0.85 / keyword_weight=0.4 / pattern_weight=0.6。
+- **LLM 深度分析（LLM Deep Analysis）**：以资深化学教师角色，Few-shot（3 示例）+ 四输入（题目≤500字 / 学生答案 / 正确答案 / 历史错题≤5条，可选 grade/avg_score/mastery_level 兜底），输出核心四字段 `barrier_type + reasoning + confidence + suggestion` + 可选 `detail{recommended_practice}`；JSON 解析四重硬化（四字段齐全校验 / 围栏→整串→首块固定解析序 / response_format 按 provider 能力切换——qwen 支持 json_object、mimo/deepseek 自由文本 / 纠错重试携带先前错误），非法响应重试 ≤3 后返回 `source=llm` 错误信号。
+- **置信度融合（Confidence Fusion）**：加权融合两路输出 `fused_conf = clamp(0.6×rule_conf + 0.4×llm_conf, 0, 1)`（权重非归一化自动归一化）；冲突检测按 barrier_type，按冲突消解决策表裁定；融合结果平铺落库到 StudentAnswer 诊断列（fused_conf/rule_conf/llm_conf/diagnosis_flag/diagnosis_version/diagnosis_source/diagnosis_detail），`barrier_type` 为落库主判。
+- **置信度标签（Confidence Level）**：<0.6 `low` / 0.6-0.8 `medium` / ≥0.8 `high`。
 - **学生障碍画像（Barrier Profile）**：学生障碍类型分布 JSON `{"concept":0.30,"reading":0.50,"expression":0.20}`（和为 1），由诊断引擎异步聚合更新。
 - **主导障碍类型（dominant_barrier）**：障碍画像中占比最高的类型，用于学生卡片与班级分布统计。
 - **教师覆盖（Override）**：教师手动推翻 AI 诊断的机制，覆盖时按 90%/5%/5% 写入新画像并记录操作日志。
 - **干预建议（Intervention Suggestion）**：按障碍类型给出的差异化学习建议（概念→思维导图、审题→划线法、表述→规范化训练）。
 - **严重度标记（Severity Mark）**：障碍占比 ≥60% 红色 / 40-60% 黄色 / <40% 绿色。
-- **诊断配置阈值（Barrier Config Thresholds）**：concept_threshold=3 / reading_threshold=2 / expression_threshold=3 / mastery_threshold=3 / auto_sync_to_student=false。
+- **化学迷思概念规则库（Chemistry Misconception Rule Base）**：22 条 YAML 规则，6 大知识板块——化学平衡(RULE_001-004) / 氧化还原(RULE_005-008) / 摩尔计算(RULE_009-012) / 有机化学(RULE_013-016) / 化学用语(RULE_017-020) / 物构知识(RULE_021-022)；每条规则含 id/category/name/barrier_type/keywords/anti_keywords/patterns/severity/confidence_modifier/remediation_points/related_questions。
+- **反关键词（anti_keywords）**：规则内的排除项，命中即排除该规则（如"理解错题意"命中则排除 concept 规则）。
+- **知识板块（Knowledge Category）**：迷思概念的组织维度（化学平衡等 6 类），作为补救建议的附加信息，不进入数据库字段。
+- **Few-shot 提示（Few-shot Prompt）**：LLM 诊断 prompt 内置 3 组示例（勒夏特列 / 氧化还原 / 摩尔单位），覆盖不同知识板块，稳定输出格式。
+- **冲突消解决策表（Conflict Resolution Decision Table）**：两路一致高置信→直接融合；单侧高（rule_conf≥0.85 或 llm_conf≥0.9）→以高置信侧为准；双高冲突（两侧均高且类别不一致）→`diagnosis_flag=manual_review`；双低冲突→取高侧+`manual_review`；仅单路→按该路权重折算（0.6×rule 或 0.4×llm）并以源置信度打标。
+- **诊断标志（diagnosis_flag）**：`normal` / `manual_review`（冲突待人工） / `needs_attention`（config 接线：启用且连续错误≥阈值） / `error`（诊断失败持久化）；来源 `diagnosis_source`：`rule / llm / fused / error`。
+- **教师覆盖与冻结（Override & Freeze）**：`PUT /api/diagnosis/override/{student_id}` 按 90%/5%/5% 写入新画像、刷新 `barrier_last_updated`、置 `barrier_frozen=True` 并留痕 `BarrierOverrideLog`；冻结使聚合跳过该生，`DELETE /override/{student_id}` 显式解除冻结后恢复聚合。
+- **教师覆盖日志（BarrierOverrideLog）**：覆盖操作的操作日志表（teacher_id / student_id / before / after / reason / created_at），支持回溯。
+- **run-llm 批量诊断（Batch Diagnosis）**：`POST /api/diagnosis/run-llm`（body `{exam_id, limit≤10}`），每次 ≤10 条未诊断错误作答（`barrier_type IS NULL` 优先），ThreadPoolExecutor(5) 并发调 LLM（子线程纯 LLM IO、不碰 session），主线程单事务融合落库 + 聚合；单条失败持久化 `diagnosis_flag=error` + 原因留痕且 `barrier_type` 保持 NULL 可重跑，其余正常落库。
+- **画像聚合（Barrier Profile Aggregation）**：五步——查已诊断错误作答→按类型计数→归一化占比（`total or 1` 防除零、保留两位、补零保三键 `{concept/reading/expression}`）→写 `Student.barrier_profile`→更新 `barrier_last_updated`；跳过 `barrier_frozen=True` 的学生。
+- **诊断配置阈值（Barrier Config Thresholds）**：consecutive_error_threshold=3 / consecutive_correct_threshold=2 / low_score_threshold=3 / warning_threshold=3 / enabled=false（默认）；PUT 按 teacher_id upsert、仅更新出现字段；启用且连续错误 ≥ 阈值时对应作答标 `needs_attention`。
+
+### 诊断引擎架构（Dual-Engine Architecture）
+
+```
+学生错题作答
+   │
+   ├─→ 规则引擎（22条YAML规则, 权重0.6, 精确率~90%）
+   │    关键词计数 + 正则匹配, anti_keywords 排除
+   │
+   ├─→ LLM 深度诊断（Few-shot×3, 权重0.4, 召回率~85%）
+   │    四输入 + JSON Schema 输出
+   │
+   └───────────────┬───────────────────┘
+                   ▼
+            置信度融合 fused = clamp(0.6×rule + 0.4×llm, 0, 1)
+                   ▼
+            冲突消解（按 barrier_type 决策表）
+                   ▼
+        StudentAnswer.barrier_type ──聚合──▶ Student.barrier_profile
+```
+
+**融合策略**：规则引擎擅长已编目的已知模式（高精确率 ~90%），LLM 覆盖语义变体与新模式（高召回率 ~85%），加权融合在精确率与召回率之间平衡；融合结果（fused_conf/rule_conf/llm_conf/flag/来源/详情）平铺落库到 StudentAnswer 诊断列，`barrier_type` 为落库主判。
+
+**冲突消解决策表概要**：两路一致高置信→直接融合；`rule_conf≥0.85` 或 `llm_conf≥0.9` 时单侧消解冲突；双低冲突→"需人工审核"（写较高侧+标记）；仅单路→按该路权重折算；置信度标签 <0.6 `low` / 0.6-0.8 `medium` / ≥0.8 `high`。
 
 ---
 
@@ -78,12 +112,15 @@
 - **蓝本题（Blueprint Question）**：变体生成所基于的源真题，其知识点/难度/正文注入 LLM prompt。
 - **变体（Variant）**：五类变体维度——数值变体、物质替换、选项重组、题干重写、难度调整。
 - **四维安全审核（Four-Dimensional Audit）**：系数配平 / 反应条件 / 产物正确性 / 分子结构四维度审核，配平要求 100% 准确率。
-- **审核状态（Audit Status）**：`passed 通过 / warning 警告 / blocked 阻断`；阻断题不可下发给学生。
-- **考试状态机（Exam State）**：`Draft 草稿 → AddingQuestions 添加题目 → Published 已发布 → InProgress 进行中 → Completed 完成`（API 层另有 Finalized 终结统计）。
-- **向量检索（Vector Retrieval）**：ChromaDB 检索真题，两层策略——关键词 Top-20 缩小候选 + 向量精筛 Top-K。
+- **题目四维审核（Four-Dimension Review）**：AI 生成题目的质量审核，区别于四维安全审核（后者审核方程式正确性，前者审核整道题质量，是两套独立系统）。四维度——科学性 / 难度匹配 / 知识点覆盖 / 区分度；每维 0-100 分，综合为加权和（科学性×0.4 + 难度×0.25 + 知识×0.2 + 区分×0.15）。
+- **审核状态（Audit Status）**：`passed 通过 / warning 警告 / blocked 阻断`；阻断题不可下发给学生。题目级综合分映射：≥80 通过 / 70-79 警告 / <70 阻断；科学性单维 <70 直接阻断。
+- **审核状态机（Audit State Machine）**：passed → 教师 approve 入库；warning → 教师 approve 放行（带复核标记）或打回重生成；blocked → 自动重生成 ≤3 次（每次重新两层审核），3 次仍 blocked → 标记"出题失败"（不自动替换，教师决定是否手动替换）。
+- **审核触发范围（Audit Trigger Scope）**：AI 生成走两层审核；手动录入/OCR 导入只过方程式级硬闸（题目级跳过）；balance_equation 工具只跑方程式级；学生对话/实验模拟本次不纳入。
+- **考试状态机（Exam State）**：六态生命周期 `Draft创建 → Published发布 → InProgress进行中 → Grading阅卷 → Completed完成 → Archived归档（终态只读）`。Draft 组卷期可增删题、可级联删除；发布（≥1 题）写 question_stats（published/published_at/question_count/total_students）；首生作答进入 InProgress；教师触发进入 Grading（挂接 OCR 批改）；finalize 统计参考人数与班级统计进入 Completed；教师触发归档为终态只读，仅可查看/导出。注：InProgress 由学生端首生作答端点触发（学生模块阶段落地）；当前教师端 start_grading 直接从 Published 一步到 Grading，故列表暂不出现"进行中"态，前端按状态矩阵预留该按钮行。
+- **向量检索（Vector Retrieval）**：ChromaDB（collection `exam_questions`，cosine+HNSW）检索真题；**每知识点一向量**（`::kp-N` 分片）；Embedding 用 DashScope text-embedding-v3（1024 维），不可用回退 MD5 伪向量，维度不匹配自动清库重建；两段检索——关键词 Top-20 缩小候选 + 向量精筛 Top-K；相似题推荐排除自身。
 - **知识图谱（Knowledge Graph）**：以 category 分类的扁平结构存储约 20+ 核心知识点（含 related_kps 关联边），支撑出题与诊断。
 - **三层搜索（Three-Layer Search）**：本地关键词 → 向量召回 → 联网补齐的真题搜索策略。
-- **试卷导出（Paper Export）**：导出 Word/PDF 试卷，`with_answers` 区分学生版/教师版（教师版标红答案、绿标解析）。
+- **试卷导出（Paper Export）**：Word 用 python-docx（A4、SimSun 11pt、密封线、按题型分节、化学式下标富文本）；PDF 用 HTML 报告转 PDF（教师版/学生版，注册 SimSun 保证中文无乱码）；`with_answers` 区分学生版/教师版（教师版标红答案、绿标解析）。
 
 ---
 
@@ -147,3 +184,4 @@
 - **L2 集成评测（L2 Integration）**：API 端点行为评测，通过标准 ≥90%，每个工具组完成时触发。
 - **L3 质量评测（L3 Quality）**：AI 内容质量评测（科学性/诊断准确率/辅导安全），通过标准 ≥70%。
 - **指标口径（Core Metrics）**：路由准确率 ≥85%、诊断覆盖率 >90%、OCR 准确率 >95%、选择题批改准确率 >99%。
+- **审核验收指标（Audit Acceptance）**：方程式级 86/86 确定性测试 100%（配平红线）、条件/产物召回率 ≥80%；题目级科学性准确率 ≥75%；两层合成 overall_status 判定正确率 ≥90%。

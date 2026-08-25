@@ -1,4 +1,4 @@
-"""Alembic 迁移测试（10.1-10.2）：临时文件库升级 + 17 表 + 索引 + 幂等 + 往返。"""
+"""Alembic 迁移测试（10.1-10.2）：临时文件库升级 + 19 表 + 索引 + 幂等 + 往返。"""
 from pathlib import Path
 
 from alembic import command
@@ -27,6 +27,8 @@ EXPECTED_TABLES = {
     "upload_session",
     "ocr_task",
     "student_submission",
+    "question_set",
+    "question_set_item",
 }
 
 EXPECTED_INDEXES = {
@@ -39,6 +41,9 @@ EXPECTED_INDEXES = {
     "ix_student_submission_exam_id",
     "ix_student_parent_binding_parent_id",
     "ix_student_parent_binding_student_id",
+    "ix_question_set_item_set_id",
+    "ix_question_set_item_question_id",
+    "ix_question_record_id",
 }
 
 
@@ -51,7 +56,7 @@ def _run_upgrade(tmp_path: Path) -> str:
     return str(db_path)
 
 
-def test_migration_creates_17_tables_and_indexes(tmp_path):
+def test_migration_creates_19_tables_and_indexes(tmp_path):
     db_path = _run_upgrade(tmp_path)
     insp = inspect(create_engine(f"sqlite:///{db_path}"))
     assert EXPECTED_TABLES <= set(insp.get_table_names())
@@ -63,6 +68,8 @@ def test_migration_creates_17_tables_and_indexes(tmp_path):
         "ocr_task",
         "student_submission",
         "student_parent_binding",
+        "question_set_item",
+        "question",
     ):
         all_indexes |= {ix["name"] for ix in insp.get_indexes(table)}
     assert EXPECTED_INDEXES <= all_indexes, f"缺失索引: {EXPECTED_INDEXES - all_indexes}"
