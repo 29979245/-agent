@@ -28,11 +28,11 @@ def _token(**overrides):
 
 # ---- 8.1 矩阵 ----
 
-def test_matrix_covers_5_roles_and_10_resources():
+def test_matrix_covers_all_roles_and_valid_resources():
     assert set(ROLE_PERMISSIONS.keys()) == set(MATRIX_ROLES)
+    assert set(RESOURCES) <= set(ROLE_PERMISSIONS["admin"])  # admin 全量兜底
     for role, perms in ROLE_PERMISSIONS.items():
-        for res in RESOURCES:
-            assert res in perms, f"{role} 缺少资源 {res}"
+        assert perms.keys() <= set(RESOURCES), f"{role} 含未登记资源"
 
 
 def test_matrix_operations_valid():
@@ -150,6 +150,36 @@ def test_decorator_denies_student_diagnosis_run_llm_403():
     resp = TestClient(app).post("/protected", headers={"Authorization": f"Bearer {_token(role='student')}"})
     assert resp.status_code == 403
     assert resp.json()["error_code"] == "PERMISSION_DENIED"
+
+
+# ---- 5.1 warning 资源矩阵 ----
+
+def test_warning_matrix_admin_dept_full_subject_lead_read():
+    assert set(ROLE_PERMISSIONS["admin"]["warning"]) == set(OPERATIONS)
+    assert set(ROLE_PERMISSIONS["dept_admin"]["warning"]) == set(OPERATIONS)
+    assert ROLE_PERMISSIONS["subject_lead"]["warning"] == {"read"}
+
+
+def test_warning_matrix_teacher_no_delete():
+    assert has_permission("teacher", "warning", "read") is True
+    assert has_permission("teacher", "warning", "update") is True
+    assert has_permission("teacher", "warning", "create") is True
+    assert has_permission("teacher", "warning", "delete") is False
+
+
+def test_warning_matrix_student_default_deny():
+    for op in OPERATIONS:
+        assert has_permission("student", "warning", op) is False
+
+
+def test_checker_allows_teacher_warning_update():
+    ctx = permission_checker.check(_token(role="teacher"), "warning", "update")
+    assert ctx.role == "teacher"
+
+
+def test_checker_denies_student_warning_read():
+    with pytest.raises(ForbiddenError):
+        permission_checker.check(_token(role="student"), "warning", "read")
 
 
 # ---- 8.3 require_permission 装饰器 ----
