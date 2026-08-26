@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>学生登录 · ChemAI 智辅化学</title>
+  <style>
+    :root {
+      --oxford: #002045;
+      --teal: #13696a;
+      --paper: #faf8f5;
+      --ink: #1f2937;
+      --muted: #6b7280;
+      --congo: #b43c28;
+      --line: rgba(0, 32, 69, .12);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+      background: var(--paper); color: var(--ink); font-size: 14px;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    }
+    .wrap { width: 340px; }
+    .logo {
+      width: 64px; height: 64px; margin: 0 auto 12px;
+      background: var(--oxford); border-radius: 16px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .brand { text-align: center; font-size: 24px; font-weight: 700; letter-spacing: 2px; color: var(--oxford); }
+    .subtitle { text-align: center; font-size: 13px; color: var(--muted); margin: 4px 0 24px; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 24px 22px 18px; }
+    .field { margin-bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 13px; color: var(--muted); }
+    .input-wrap { position: relative; }
+    input {
+      width: 100%;
+      border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px;
+      font-size: 14px; font-family: inherit; background: #fff; outline: none;
+    }
+    input:focus { border-color: var(--teal); }
+    input.err { border-color: var(--congo); }
+    .eye {
+      position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; cursor: pointer; color: var(--muted);
+      padding: 6px; display: flex; align-items: center;
+    }
+    .btn {
+      width: 100%; height: 48px; background: var(--oxford); color: #fff;
+      border: none; border-radius: 6px; font-size: 15px; font-weight: 600;
+      cursor: pointer; font-family: inherit; margin-top: 4px;
+    }
+    .btn:hover { background: #002f5e; }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .msg { min-height: 20px; font-size: 13px; margin-top: 12px; text-align: center; }
+    .msg.err { color: var(--congo); }
+    .foot { margin-top: 14px; text-align: center; font-size: 12px; color: var(--muted); line-height: 1.8; }
+    .shake { animation: shake .4s; }
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-6px); }
+      75% { transform: translateX(6px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10 2v7.5L3.5 18a2 2 0 0 0 1.7 3h13.6a2 2 0 0 0 1.7-3L14 9.5V2" />
+        <path d="M8 2h8" />
+        <path d="M7 15h10" />
+      </svg>
+    </div>
+    <div class="brand">ChemAI 智辅化学</div>
+    <div class="subtitle">学生端 · 自适应练习与复习</div>
+    <div class="card">
+      <form id="loginForm" autocomplete="off">
+        <div class="field">
+          <label for="username">学号 / 手机号</label>
+          <input id="username" name="username" required autocomplete="username" placeholder="请输入学号或手机号" />
+        </div>
+        <div class="field">
+          <label for="password">密码</label>
+          <div class="input-wrap">
+            <input id="password" name="password" type="password" required autocomplete="current-password" placeholder="请输入密码" />
+            <button type="button" id="eyeBtn" class="eye" aria-label="显示密码">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </div>
+        <button id="submitBtn" class="btn" type="submit">登 录</button>
+      </form>
+      <div id="msg" class="msg" aria-live="polite"></div>
+    </div>
+    <div class="foot">
+      还没有账号？联系老师注册<br />
+      v0.4.0
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      const form = document.getElementById('loginForm');
+      const submitBtn = document.getElementById('submitBtn');
+      const msg = document.getElementById('msg');
+      const eyeBtn = document.getElementById('eyeBtn');
+      const pwd = document.getElementById('password');
+
+      function show(text, isErr) {
+        msg.textContent = text || '';
+        msg.className = 'msg' + (isErr ? ' err' : '');
+      }
+      function shake() {
+        form.classList.remove('shake');
+        void form.offsetWidth;
+        form.classList.add('shake');
+      }
+
+      eyeBtn.addEventListener('click', function () {
+        pwd.type = pwd.type === 'password' ? 'text' : 'password';
+      });
+
+      // 已登录按角色直接进入对应入口
+      if (window.ChemAuth.getToken()) {
+        const target = window.ChemAuth.redirectAfterLogin();
+        if (target) location.replace(target);
+        else window.ChemAuth.logout();
+      }
+
+      form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const username = form.username.value.trim();
+        const password = form.password.value;
+        if (!username || !password) {
+          show('请输入学号和密码', true);
+          shake();
+          return;
+        }
+        submitBtn.disabled = true;
+        submitBtn.textContent = '登录中…';
+        show('', false);
+        try {
+          const data = await window.ChemAuth.login(username, password);
+          const target = window.ChemAuth.redirectAfterLogin();
+          if (target) {
+            show('登录成功，正在进入…', false);
+            location.replace(target);
+          } else {
+            // 非学生角色在学生端无可用页面：清除会话并提示
+            window.ChemAuth.logout();
+            show('无权限：当前账号不是学生角色', true);
+            shake();
+          }
+        } catch (err) {
+          show((err && err.message) || '账号或密码错误', true);
+          shake();
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = '登 录';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
