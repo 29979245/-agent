@@ -66,6 +66,13 @@
       font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
       font-size: 12px; font-weight: 500; color: var(--muted); display: block; margin-top: 2px; letter-spacing: .4px;
     }
+    .header-nav { display: flex; align-items: center; gap: 6px; margin-left: 8px; }
+    .header-link {
+      font-size: 13px; font-weight: 500; color: var(--muted); text-decoration: none;
+      padding: 7px 14px; border-radius: 8px; transition: background .15s, color .15s;
+    }
+    .header-link:hover { background: rgba(19,105,106,.08); color: var(--teal); }
+    .header-link.active { background: rgba(19,105,106,.10); color: var(--teal); }
     .user { margin-left: auto; text-align: right; font-size: 12px; color: var(--muted); line-height: 1.7; }
     .user-role { font-size: 11px; }
     .logout {
@@ -291,6 +298,10 @@
         </svg>
       </span>
       <span class="brand">智辅化学<small>考试工作台 · Exam Workbench</small></span>
+      <nav class="header-nav">
+        <a class="header-link" href="panel.html">学情面板</a>
+        <a class="header-link" href="students.html">学生管理</a>
+      </nav>
       <div class="user">
         <div>{{ user.name || '教师' }}</div>
         <div class="user-role">角色：{{ user.role || '-' }}</div>

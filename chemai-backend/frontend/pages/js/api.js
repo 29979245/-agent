@@ -31,8 +31,9 @@
   function handleAuth(resp) {
     if (resp.status === 401) {
       if (window.ChemAuth) {
+        const isStudent = window.ChemAuth.isStudent();  // logout 前先读角色，避免清空后无法推断
         window.ChemAuth.logout();
-        window.ChemAuth.redirectToLogin();
+        window.ChemAuth.redirectToLogin(isStudent);
       } else {
         location.href = 'login.html';
       }
@@ -193,6 +194,23 @@
     // ---- 班级（/api/classes）----
     getClasses() {
       return request('/api/classes');
+    },
+    getClassStudents(classId) {
+      return request('/api/classes/' + classId + '/students');
+    },
+
+    // ---- 学情面板（/api/panel）----
+    getClassPanel(classId) {
+      return request('/api/panel/class/' + classId);
+    },
+    getPanelTrend(classId) {
+      return request('/api/panel/class/' + classId + '/trend');
+    },
+    getGradeTrend(gradeId) {
+      return request('/api/panel/grade/' + gradeId + '/trend');
+    },
+    getStudentDetail(classId, studentId) {
+      return request('/api/panel/class/' + classId + '/student/' + studentId);
     },
 
     // ---- 考试生命周期（/api/exam）----
