@@ -132,9 +132,8 @@
     .trend-xaxis span { font-size: 11px; color: var(--gray); }
 
     /* ===== Row 4 Students ===== */
-    .students-scroll { display: flex; gap: 16px; overflow-x: auto; padding: 20px; padding-top: 16px; }
-    .students-scroll::-webkit-scrollbar { height: 8px; }
-    .students-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+    .students-scroll { display: flex; gap: 16px; overflow-x: auto; padding: 20px; padding-top: 16px; scrollbar-width: none; -ms-overflow-style: none; }
+    .students-scroll::-webkit-scrollbar { display: none; }
     a.student-card {
       flex: 0 0 180px; width: 180px; background: var(--white); border: 1px solid var(--border);
       border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 10px;
@@ -252,7 +251,7 @@
       var ChemAuth = window.ChemAuth;
 
       if (!ChemAuth.requireAuth()) return;
-      if (!ChemAuth.isTeacherLike()) { ChemAuth.redirectToLogin(); return; }
+      if (!ChemAuth.isTeacherLike()) { location.href = 'forbidden.html?side=teacher'; return; }
 
       var user = ChemAuth.getUser() || {};
       document.getElementById('userName').textContent = user.name || '教师';

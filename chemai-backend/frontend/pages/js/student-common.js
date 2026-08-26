@@ -61,9 +61,8 @@
         return false;
       }
       if (!window.ChemAuth.isStudent()) {
-        const target = window.ChemAuth.redirectAfterLogin();
-        if (target) location.replace(target);
-        else window.ChemAuth.redirectToLogin();
+        // 非学生（如教师）越权访问学生页：显式 403，而非弹回其首页
+        location.replace('forbidden.html?side=student');
         return false;
       }
       if (!window.ChemAuth.getStudentId()) {

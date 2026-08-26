@@ -253,7 +253,7 @@
       var ChemAuth = window.ChemAuth;
 
       if (!ChemAuth.requireAuth()) return;
-      if (!ChemAuth.isTeacherLike()) { ChemAuth.redirectToLogin(); return; }
+      if (!ChemAuth.isTeacherLike()) { location.href = 'forbidden.html?side=teacher'; return; }
 
       var user = ChemAuth.getUser() || {};
       document.getElementById('userName').textContent = user.name || '教师';
