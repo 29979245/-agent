@@ -81,6 +81,20 @@ def list_classes(
     return {"items": [{"id": c.id, "name": c.name} for c in rows]}
 
 
+@classes_router.get("/classes/{class_id}/students")
+@require_permission("analysis", "read")
+def list_class_students(
+    request: Request, class_id: int, db: Session = Depends(get_db)
+) -> dict:
+    """班级学生列表（面板渲染 KPI 与重点关注横条）；教师仅本校、student 拒绝。"""
+    from app.api.v1.panel import _ensure_not_student, _require_class_in_teacher_school
+    from app.services.analytics.panel_service import class_students
+
+    _ensure_not_student(request)
+    _require_class_in_teacher_school(db, request, class_id)
+    return class_students(db, class_id)
+
+
 @exam_router.post("/create")
 @require_permission("exam", "create")
 def create_exam(

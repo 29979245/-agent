@@ -18,6 +18,7 @@ from app.api.v1.auth import auth_router, parent_router
 from app.api.v1.diagnosis import diagnosis_router
 from app.api.v1.exam import classes_router, exam_router
 from app.api.v1.exam_bank import exam_bank_router
+from app.api.v1.panel import panel_router
 from app.api.v1.practice import practice_router
 from app.api.v1.review import review_router
 from app.api.v1.wrong_question import wrong_question_router
@@ -121,6 +122,7 @@ app.include_router(audit_router, prefix="/api/question", tags=["question"])
 app.include_router(exam_bank_router, prefix="/api/exam-bank", tags=["exam-bank"])
 app.include_router(exam_router, prefix="/api/exam", tags=["exam"])
 app.include_router(classes_router, prefix="/api", tags=["org"])
+app.include_router(panel_router, prefix="/api/panel", tags=["panel"])
 app.include_router(diagnosis_router, prefix="/api/diagnosis", tags=["diagnosis"])
 app.include_router(practice_router, prefix="/api/practice", tags=["practice"])
 app.include_router(review_router, prefix="/api/review", tags=["review"])
