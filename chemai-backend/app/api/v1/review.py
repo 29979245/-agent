@@ -1,15 +1,18 @@
 """间隔复习 API（doc 29 §4-§6，design.md D4/D5，挂载于 /api/review）。
 
-- GET  /tasks/{student_id}   到期任务列表（pending/overdue，按到期升序，student 仅自身）
+- GET  /tasks/{student_id}   到期任务列表（pending/overdue，按到期升序，student 仅自身）+ 复习统计
 - POST /submit               提交判级：归属校验 → 升降级状态机 → 只写 ReviewHistory
 """
+import datetime
+
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.permissions import require_permission
-from app.db.models import Account, Question, ReviewTask
+from app.db.models import Account, Question, ReviewHistory, ReviewTask
+from app.db.models.enums import ReviewTaskStatus
 from app.db.session import get_db
 from app.services.exercise.spaced_repetition import SpacedRepetitionEngine
 from app.services.question.serializers import split_knowledge_points
@@ -44,7 +47,22 @@ def review_tasks(request: Request, student_id: int, db: Session = Depends(get_db
             "status": task.status.value,
             "next_review_at": task.next_review_at.isoformat() if task.next_review_at else None,
         })
-    return {"student_id": student_id, "count": len(items), "tasks": items}
+    today = datetime.date.today()
+    stats = {
+        "due": len(items),
+        "done_today": (
+            db.query(ReviewHistory)
+            .join(ReviewTask, ReviewHistory.review_task_id == ReviewTask.id)
+            .filter(ReviewTask.student_id == student_id, ReviewHistory.review_date == today)
+            .count()
+        ),
+        "mastered": (
+            db.query(ReviewTask)
+            .filter(ReviewTask.student_id == student_id, ReviewTask.status == ReviewTaskStatus.done)
+            .count()
+        ),
+    }
+    return {"student_id": student_id, "count": len(items), "stats": stats, "tasks": items}
 
 
 # ---------------- 6.2 提交判级 ----------------

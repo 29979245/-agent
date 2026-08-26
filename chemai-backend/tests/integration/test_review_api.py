@@ -43,6 +43,7 @@ def test_tasks_lists_due_excludes_done(exercise_client):
     assert {t["question_id"] for t in body["tasks"]} == {q1.id, q2.id}
     assert body["tasks"][0]["content"]  # 含题目内容
     assert all(t["status"] in ("pending", "overdue") for t in body["tasks"])
+    assert body["stats"] == {"due": 2, "done_today": 0, "mastered": 1}
 
 
 def test_tasks_student_cross_403(exercise_client):

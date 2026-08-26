@@ -56,6 +56,9 @@ def test_wrong_list_dedup_error_count(exercise_client):
     assert by_q[q1]["error_count"] == 2
     assert by_q[q2]["error_count"] == 1
     assert body["count"] == 2
+    assert body["stats"]["total"] == 2
+    assert body["stats"]["week_new"] == 2
+    assert body["stats"]["mastered"] == 0
 
 
 def test_wrong_list_empty(exercise_client):
