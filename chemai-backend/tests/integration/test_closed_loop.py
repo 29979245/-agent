@@ -84,11 +84,16 @@ def test_end_to_end_closed_loop(exercise_client, tmp_path):
     assert variant["questions"]
     assert variant["questions"][0]["content"] != exam.questions[0].content
 
-    # 8. 训练会话：per-student 训练记录引用原题 id
+    # 8. 训练会话：per-student 训练记录引用原题 id，逐题批改 + 答错复习同步（复用不重复）
     train = client.post("/api/wrong-questions/train", headers=headers,
-                        json={"student_id": stu.id, "question_ids": qids}).json()
+                        json={"student_id": stu.id, "answers": [
+                            {"question_id": qid, "selected_option": "x"} for qid in qids
+                        ]}).json()
     rec = db.get(ExamRecord, train["exam_id"])
     assert rec.student_id == stu.id and rec.question_stats["mode"] == "training"
+    assert train["question_count"] == len(qids)
+    assert all(not r["is_correct"] for r in train["results"])
+    assert db.query(ReviewTask).filter(ReviewTask.student_id == stu.id).count() == len(qids)
 
     # 9. 每日调度：同日去重跳过（不重复布置）
     summary = DailyPracticeScheduler(db).run_daily_batch(now=NOW)

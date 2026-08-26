@@ -139,24 +139,53 @@ def test_variants_unknown_question_404(db_session, env):
 
 # ---- 4.3 训练会话 ----
 
-def test_train_creates_per_student_record(db_session, env):
+def test_train_grades_and_syncs_review(db_session, env):
     stu = _student(db_session, env)
-    q1 = _question(db_session, content="Q1")
+    q1 = _question(db_session, content="Q1")  # answer="a"
     q2 = _question(db_session, content="Q2")
     svc = WrongQuestionTrainer(db_session)
-    result = svc.start_training(stu.id, [q1.id, q2.id])
+    result = svc.start_training(stu.id, [
+        {"question_id": q1.id, "selected_option": "a"},  # 答对
+        {"question_id": q2.id, "selected_option": "x"},  # 答错
+    ])
     assert result["question_count"] == 2
+    assert [r["is_correct"] for r in result["results"]] == [True, False]
     exam = db_session.get(ExamRecord, result["exam_id"])
     assert exam.student_id == stu.id
     assert exam.question_stats["mode"] == "training"
     assert set(exam.question_stats["question_ids"]) == {q1.id, q2.id}
     # 不复制题目，保持原题 identity
     assert db_session.query(Question).filter(Question.record_id == exam.id).count() == 0
+    # 逐题批改写入 StudentAnswer（含 answered_at）
+    answers = db_session.query(StudentAnswer).filter(StudentAnswer.exam_id == exam.id).all()
+    assert len(answers) == 2
+    assert all(a.answered_at is not None for a in answers)
+    by_q = {a.question_id: a for a in answers}
+    assert by_q[q1.id].is_correct is True
+    assert by_q[q2.id].is_correct is False
+    # 答错触发复习任务同步
+    tasks = db_session.query(ReviewTask).filter_by(student_id=stu.id).all()
+    assert [t.question_id for t in tasks] == [q2.id]
+
+
+def test_train_review_sync_dedup(db_session, env):
+    """同题训练答错复用既有 ReviewTask，不重复创建。"""
+    stu = _student(db_session, env)
+    q = _question(db_session)
+    db_session.add(ReviewTask(student_id=stu.id, question_id=q.id,
+                              status=ReviewTaskStatus.pending))
+    db_session.flush()
+    WrongQuestionTrainer(db_session).start_training(
+        stu.id, [{"question_id": q.id, "selected_option": "x"}]
+    )
+    assert db_session.query(ReviewTask).filter_by(student_id=stu.id).count() == 1
 
 
 def test_train_missing_question_404(db_session, env):
     with pytest.raises(NotFoundError):
-        WrongQuestionTrainer(db_session).start_training(_student(db_session, env).id, [99999])
+        WrongQuestionTrainer(db_session).start_training(
+            _student(db_session, env).id, [{"question_id": 99999, "selected_option": "a"}]
+        )
 
 
 # ---- 4.4 标记已掌握 ----

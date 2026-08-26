@@ -58,9 +58,14 @@ def variants(
 
 # ---------------- 7.3 训练会话 ----------------
 
+class TrainAnswer(BaseModel):
+    question_id: int
+    selected_option: str = Field(..., max_length=2000)
+
+
 class TrainRequest(BaseModel):
     student_id: int
-    question_ids: list[int] = Field(..., min_length=1)
+    answers: list[TrainAnswer] = Field(..., min_length=1)
 
 
 @wrong_question_router.post("/train")
@@ -71,7 +76,10 @@ def train(
     db: Session = Depends(get_db),
 ) -> dict:
     _require_own(db, request.state.user, payload.student_id)
-    return WrongQuestionTrainer(db).start_training(payload.student_id, payload.question_ids)
+    return WrongQuestionTrainer(db).start_training(
+        payload.student_id,
+        [{"question_id": a.question_id, "selected_option": a.selected_option} for a in payload.answers],
+    )
 
 
 # ---------------- 7.4 标记已掌握 ----------------

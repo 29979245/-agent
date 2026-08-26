@@ -17,6 +17,7 @@ from app.db.models import ExamRecord, ExamStatus, ExamType, Question, ReviewTask
 from app.db.models.enums import Difficulty, QuestionSource, ReviewLevel, ReviewTaskStatus
 from app.services.exercise.adaptive import copy_historical_question
 from app.services.exercise.sampling import sample_questions
+from app.services.exercise.spaced_repetition import sync_review_tasks
 from app.services.question.historical import HistoricalBank, get_bank
 from app.services.question.serializers import question_dict, split_knowledge_points
 
@@ -120,13 +121,18 @@ class WrongQuestionTrainer:
 
     # ---- 4.3 训练会话 ----
 
-    def start_training(self, student_id: int, question_ids: list[int]) -> dict:
-        """创建 per-student 训练记录，引用原题题目（不复制）。"""
+    def start_training(self, student_id: int, answers: list[dict]) -> dict:
+        """创建 per-student 训练记录并逐题批改：写 StudentAnswer、答错同步复习任务。
+
+        spec wrong-question：训练结果 SHALL 触发复习任务同步（答错题目创建/复用 ReviewTask）。
+        """
         from sqlalchemy import select
-        existing = set(self.db.execute(select(Question.id).where(Question.id.in_(question_ids))).scalars().all())
-        missing = [qid for qid in question_ids if qid not in existing]
+        qids = [a["question_id"] for a in answers]
+        existing = set(self.db.execute(select(Question.id).where(Question.id.in_(qids))).scalars().all())
+        missing = [qid for qid in qids if qid not in existing]
         if missing:
             raise NotFoundError(detail=f"题目不存在：{missing}", error_code="QUESTION_NOT_FOUND")
+        questions = {q.id: q for q in self.db.query(Question).filter(Question.id.in_(qids)).all()}
         exam = ExamRecord(
             class_id=None,
             student_id=student_id,
@@ -136,17 +142,42 @@ class WrongQuestionTrainer:
             exam_date=datetime.date.today(),
             question_stats={
                 "mode": "training",
-                "question_ids": list(question_ids),
+                "question_ids": list(qids),
                 "deadline": None,
             },
         )
         self.db.add(exam)
         self.db.flush()
+        now = datetime.datetime.utcnow()
+        results: list[dict] = []
+        wrong_ids: list[int] = []
+        for item in answers:
+            q = questions[item["question_id"]]
+            is_correct = bool(q.answer.strip().upper() == item["selected_option"].strip().upper())
+            if not is_correct:
+                wrong_ids.append(q.id)
+            self.db.add(StudentAnswer(
+                student_id=student_id,
+                question_id=q.id,
+                exam_id=exam.id,
+                answer_text=item["selected_option"],
+                is_correct=is_correct,
+                answered_at=now,
+            ))
+            results.append({
+                "question_id": q.id,
+                "is_correct": is_correct,
+                "correct_answer": q.answer,
+                "analysis": q.analysis or "",
+            })
+        if wrong_ids:
+            sync_review_tasks(self.db, student_id, wrong_ids)
+        self.db.flush()
         return {
             "student_id": student_id,
             "exam_id": exam.id,
-            "question_count": len(question_ids),
-            "question_ids": list(question_ids),
+            "question_count": len(qids),
+            "results": results,
         }
 
     # ---- 4.4 标记已掌握 ----

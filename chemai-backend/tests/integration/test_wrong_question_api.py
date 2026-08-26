@@ -99,14 +99,17 @@ def test_variants_sampling_excludes_original(exercise_client, tmp_path):
     assert exam.student_id == stu.id
 
 
-def test_train_creates_per_student_record(exercise_client):
+def test_train_grades_and_syncs_review(exercise_client):
     client, db = exercise_client
     stu = _student(db)
     acc = _account(db, stu)
     exam = _practice_exam(db, stu, questions=[Q1, Q2])
     qids = [q.id for q in exam.questions]
     resp = client.post("/api/wrong-questions/train",
-                       json={"student_id": stu.id, "question_ids": qids},
+                       json={"student_id": stu.id, "answers": [
+                           {"question_id": qids[0], "selected_option": "A"},  # Q1 answer A → 对
+                           {"question_id": qids[1], "selected_option": "A"},  # Q2 answer B → 错
+                       ]},
                        headers=_headers(acc))
     assert resp.status_code == 200
     body = resp.json()
@@ -114,6 +117,15 @@ def test_train_creates_per_student_record(exercise_client):
     assert rec.student_id == stu.id
     assert rec.question_stats["mode"] == "training"
     assert set(rec.question_stats["question_ids"]) == set(qids)
+    # 逐题批改返回判定
+    assert [r["is_correct"] for r in body["results"]] == [True, False]
+    # 批改写入 StudentAnswer
+    answers = db.query(StudentAnswer).filter(StudentAnswer.exam_id == rec.id).all()
+    assert len(answers) == 2
+    assert all(a.answered_at is not None for a in answers)
+    # 答错同步复习任务
+    tasks = db.query(ReviewTask).filter_by(student_id=stu.id).all()
+    assert [t.question_id for t in tasks] == [qids[1]]
 
 
 def test_mastered_marks_done_and_removes(exercise_client):

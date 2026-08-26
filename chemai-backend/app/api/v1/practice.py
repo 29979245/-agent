@@ -47,13 +47,18 @@ def _exam_questions(db: Session, exam: ExamRecord) -> list[Question]:
     return []
 
 
+# 训练/变式会话不算「练习任务」：effect 与任务列表均排除，避免混入异构记录（c2）
+_NON_PRACTICE_MODES = {"training", "variant"}
+
+
 def _practice_records(db: Session, student_id: int) -> list[ExamRecord]:
-    return (
+    rows = (
         db.query(ExamRecord)
         .filter(ExamRecord.student_id == student_id, ExamRecord.exam_type == ExamType.practice)
         .order_by(ExamRecord.exam_date.desc(), ExamRecord.id.desc())
         .all()
     )
+    return [r for r in rows if (r.question_stats or {}).get("mode") not in _NON_PRACTICE_MODES]
 
 
 # ---------------- 5.1 任务列表 ----------------
