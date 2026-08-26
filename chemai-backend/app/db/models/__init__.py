@@ -20,6 +20,9 @@ from app.db.models.enums import (
     TeacherStatus,
     TeacherSubRole,
     UploadSessionStatus,
+    WarningLevel,
+    WarningStatus,
+    WarningType,
 )
 from app.db.models.account import Account
 from app.db.models.diagnosis import BarrierConfig, BarrierOverrideLog
@@ -28,6 +31,7 @@ from app.db.models.ocr import OCRTask, StudentSubmission, UploadSession
 from app.db.models.org import Class, Grade, School, Student, Teacher
 from app.db.models.parent import Parent, ParentNotification, StudentParentBinding
 from app.db.models.review import ReviewHistory, ReviewTask
+from app.db.models.warning import WarningLog
 
 __all__ = [
     # 组织链
@@ -55,6 +59,8 @@ __all__ = [
     "UploadSession",
     "OCRTask",
     "StudentSubmission",
+    # 预警链
+    "WarningLog",
     # 枚举
     "AccountRole",
     "AuditStatus",
@@ -71,4 +77,7 @@ __all__ = [
     "TeacherStatus",
     "TeacherSubRole",
     "UploadSessionStatus",
+    "WarningLevel",
+    "WarningStatus",
+    "WarningType",
 ]

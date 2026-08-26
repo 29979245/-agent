@@ -111,5 +111,8 @@ class Student(Base):
         MutableDict.as_mutable(JSON), default=dict
     )
     bind_code: Mapped[str] = mapped_column(String(6), default="")
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=True
+    )  # 注册时间（no_login 从未作答分支依赖；迁移回填最近作答或 now，NULL 防御性跳过）
 
     class_: Mapped["Class"] = relationship(back_populates="students")

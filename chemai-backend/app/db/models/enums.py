@@ -137,6 +137,30 @@ class NotificationType(str, enum.Enum):
     message = "message"
 
 
+class WarningType(str, enum.Enum):
+    """预警类型：连续未登录 / 成绩下滑 / 错题率过高。"""
+
+    no_login = "no_login"
+    score_drop = "score_drop"
+    high_error_rate = "high_error_rate"
+
+
+class WarningLevel(str, enum.Enum):
+    """预警级别：关注 / 警告 / 紧急。"""
+
+    info = "info"
+    warning = "warning"
+    critical = "critical"
+
+
+class WarningStatus(str, enum.Enum):
+    """预警处理状态：待处理 / 已处理 / 已忽略。"""
+
+    pending = "pending"
+    processed = "processed"
+    ignored = "ignored"
+
+
 class UploadSessionStatus(str, enum.Enum):
     """上传会话状态机：UPLOADED → PREVIEWING → READY → (IMPORTING→IMPORTED | GRADING→GRADED) → DONE；DISCARDED/ERROR 终态。"""
 
