@@ -61,6 +61,23 @@
       25% { transform: translateX(-6px); }
       75% { transform: translateX(6px); }
     }
+    .session-notice {
+      display: none;
+      font-size: 12px;
+      line-height: 1.7;
+      background: rgba(180, 60, 40, .06);
+      border: 1px solid rgba(180, 60, 40, .25);
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 16px;
+      color: var(--congo);
+    }
+    .session-notice .act { display: block; margin-top: 8px; text-align: right; }
+    .session-notice .act a,
+    .session-notice .act button {
+      font-size: 12px; color: var(--teal); background: none; border: none;
+      cursor: pointer; text-decoration: underline; font-family: inherit; padding: 0 4px;
+    }
   </style>
 </head>
 <body>
@@ -75,6 +92,7 @@
     <div class="brand">ChemAI 智辅化学</div>
     <div class="subtitle">学生端 · 自适应练习与复习</div>
     <div class="card">
+      <div id="sessionNotice" class="session-notice"></div>
       <form id="loginForm" autocomplete="off">
         <div class="field">
           <label for="username">学号 / 手机号</label>
@@ -124,12 +142,27 @@
         pwd.type = pwd.type === 'password' ? 'text' : 'password';
       });
 
-      // 已登录按角色直接进入对应入口
-      if (window.ChemAuth.getToken()) {
-        const target = window.ChemAuth.redirectAfterLogin();
-        if (target) location.replace(target);
-        else window.ChemAuth.logout();
-      }
+      // 已有会话：不自动跳转，改为展示当前登录状态；切换角色需先退出（本设备同一时间仅一个会话）
+      (function () {
+        const user = window.ChemAuth.getUser();
+        if (!user || !window.ChemAuth.getToken()) return;
+        const notice = document.getElementById('sessionNotice');
+        const isStudent = user.role === 'student';
+        const name = user.name || '';
+        if (isStudent) {
+          notice.innerHTML = '当前已登录学生端：' + name + '。' +
+            '<span class="act"><a href="practice.html">进入练习页</a> · <button id="sessionLogout">退出登录</button></span>';
+        } else {
+          notice.innerHTML = '当前已登录教师端：' + name + '。如需登录学生端，请先退出当前账号。' +
+            '<span class="act"><button id="sessionLogout">退出登录</button></span>';
+        }
+        notice.style.display = 'block';
+        const logoutBtn = document.getElementById('sessionLogout');
+        if (logoutBtn) logoutBtn.addEventListener('click', function () {
+          window.ChemAuth.logout();
+          notice.style.display = 'none';
+        });
+      })();
 
       form.addEventListener('submit', async function (e) {
         e.preventDefault();
@@ -144,7 +177,11 @@
         submitBtn.textContent = '登录中…';
         show('', false);
         try {
-          const data = await window.ChemAuth.login(username, password);
+          const data = await window.ChemAuth.login(
+            username, password,
+            ['student'],
+            '该账号不能通过学生端登录。教师账号请通过教师端登录。'
+          );
           const target = window.ChemAuth.redirectAfterLogin();
           if (target) {
             show('登录成功，正在进入…', false);

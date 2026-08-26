@@ -57,8 +57,12 @@
       }
       return true;
     },
-    async login(username, password) {
+    // expectedRoles：限定本登录端允许的角色；不符时抛错且不保存会话（登录端角色门控）
+    async login(username, password, expectedRoles, rejectMessage) {
       const data = await window.ChemAPI.login({ username, password });
+      if (expectedRoles && expectedRoles.length && expectedRoles.indexOf(data.role) === -1) {
+        throw new Error(rejectMessage || '该账号角色与当前登录端不符');
+      }
       this.saveSession(data.access_token, {
         user_id: data.user_id,
         role: data.role,
