@@ -21,15 +21,9 @@ from app.db.models import (
     StudentParentBinding,
 )
 from app.db.models.enums import NotificationType, ParentBindingStatus
-from app.services.exercise.adaptive import copy_historical_question
+from app.services.exercise.adaptive import AdaptivePracticeService, copy_historical_question
 from app.services.exercise.sampling import sample_questions
 from app.services.exercise.spaced_repetition import SpacedRepetitionEngine
-from app.services.exercise.zpd import (
-    adjust_difficulty,
-    compute_zpd_difficulty,
-    dominant_barrier,
-    fallback_kps_for,
-)
 from app.services.question.historical import HistoricalBank, get_bank
 
 DAILY_NAME = "每日练习"
@@ -49,8 +43,9 @@ class DailyPracticeScheduler:
     def create_daily_practice(
         self, student: Student, now: Optional[datetime.datetime] = None,
     ) -> dict | None:
-        """生成一份每日练习；同生同天已存在则跳过（返回 None）。"""
+        """生成一份每日练习；同生同天已存在每日练习则跳过（返回 None）。"""
         today = (now or datetime.datetime.utcnow()).date()
+        # 只按 mode=="daily" 去重：同一天训练/变式记录不阻断每日布置（spec daily-practice c1）
         existing = (
             self.db.query(ExamRecord)
             .filter(
@@ -58,14 +53,16 @@ class DailyPracticeScheduler:
                 ExamRecord.exam_type == ExamType.practice,
                 ExamRecord.exam_date == today,
             )
-            .first()
+            .all()
         )
-        if existing is not None:
+        if any((e.question_stats or {}).get("mode") == "daily" for e in existing):
             return None
-        barrier = dominant_barrier(student)
-        zpd = compute_zpd_difficulty(self.db, student.id)
-        difficulty = adjust_difficulty(zpd, barrier)
-        kps = fallback_kps_for(barrier)
+        # 目标解析收敛：复用 adaptive.plan_for（ZPD + 障碍 + 薄弱点补齐），避免分叉
+        plan = AdaptivePracticeService(self.db, self.bank).plan_for(student)
+        barrier = plan["barrier"]
+        zpd = plan["zpd_difficulty"]
+        difficulty = plan["difficulty"]
+        kps = plan["knowledge_points"]
         selected, shortfall = sample_questions(
             self.bank, kps, difficulty, count=DAILY_COUNT
         )

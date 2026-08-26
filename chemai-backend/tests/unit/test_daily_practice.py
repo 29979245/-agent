@@ -105,6 +105,23 @@ def test_create_daily_dedup_same_day(tmp_path, db_session, env):
     assert svc.create_daily_practice(stu, now=now) is None  # 同生同天去重
 
 
+def test_create_daily_not_blocked_by_training_same_day(tmp_path, db_session, env):
+    """同一天训练/变式记录不阻断每日练习（c1：去重只看 mode==daily）。"""
+    _load_bank(tmp_path)
+    stu = _student(db_session, env)
+    db_session.add(ExamRecord(
+        class_id=None, student_id=stu.id, name="错题训练",
+        exam_type=ExamType.practice, exam_date=datetime.date(2026, 8, 26),
+        question_stats={"mode": "training"},
+    ))
+    db_session.flush()
+    now = datetime.datetime(2026, 8, 26, 8, 0, 0)
+    result = DailyPracticeScheduler(db_session).create_daily_practice(stu, now=now)
+    assert result is not None  # 训练记录不影响每日布置
+    exam = db_session.get(ExamRecord, result["exam_id"])
+    assert exam.question_stats["mode"] == "daily"
+
+
 def test_create_daily_reading_keeps_zpd(tmp_path, db_session, env):
     _load_bank(tmp_path)
     stu = _student(db_session, env, profile={"reading": 1.0})

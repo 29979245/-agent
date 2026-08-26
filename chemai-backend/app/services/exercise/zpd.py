@@ -91,3 +91,17 @@ def fallback_kps_for(barrier: str) -> list[str]:
         "expression": ["化学用语", "化学方程式"],
     }
     return _MAP.get(barrier, _MAP[DEFAULT_BARRIER])
+
+
+def resolve_knowledge_points(weak: list[str], barrier: str, top_n: int = 3) -> list[str]:
+    """出题目标知识点：薄弱点不足 top_n 时用障碍映射补足，无薄弱点全用映射。
+
+    spec adaptive-practice-engine：可用知识点不足 3 个时由调用方传入的知识点参数补足。
+    """
+    kps = list(weak)
+    for kp in fallback_kps_for(barrier):
+        if len(kps) >= top_n:
+            break
+        if kp not in kps:
+            kps.append(kp)
+    return kps

@@ -32,6 +32,7 @@ from app.services.exercise.zpd import (
     compute_zpd_difficulty,
     dominant_barrier,
     extract_weak_kps,
+    resolve_knowledge_points,
 )
 
 
@@ -155,6 +156,25 @@ def test_weak_kp_top_n_and_empty(db_session, env):
     _answer(db_session, env, stu, q1, correct=False)
     _answer(db_session, env, stu, q2, correct=False)
     assert extract_weak_kps(db_session, stu.id, top_n=3) == ["氧化还原反应", "化学平衡"]
+
+
+def test_resolve_kp_pads_weak_with_fallback():
+    """薄弱点不足 top_n 用障碍映射补足；无薄弱点全用映射（a2）。"""
+    assert resolve_knowledge_points([], "concept") == ["氧化还原反应", "化学平衡", "离子反应"]
+    assert resolve_knowledge_points(["离子反应"], "concept") == ["离子反应", "氧化还原反应", "化学平衡"]
+    assert resolve_knowledge_points(["A", "B", "C"], "concept") == ["A", "B", "C"]  # 已满不补
+    assert resolve_knowledge_points([], "reading") == ["化学实验", "化学计算"]  # 映射不足 3 取全量
+
+
+def test_plan_for_pads_weak_kps(db_session, env):
+    """plan_for 输出目标知识点 = 薄弱点 + 障碍映射补足（a2 闭环）。"""
+    stu = _student(db_session, env, profile={"concept": 1.0})
+    _question(db_session, kp="离子反应")
+    _answer(db_session, env, stu, db_session.query(Question).first(), correct=False)
+    plan = AdaptivePracticeService(db_session).plan_for(stu)
+    assert plan["barrier"] == "concept"
+    assert plan["weak_kps"] == ["离子反应"]
+    assert plan["knowledge_points"] == ["离子反应", "氧化还原反应", "化学平衡"]
 
 
 # ---- 2.3 主导障碍 ----

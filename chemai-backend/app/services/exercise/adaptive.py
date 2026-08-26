@@ -18,7 +18,7 @@ from app.services.exercise.zpd import (
     compute_zpd_difficulty,
     dominant_barrier,
     extract_weak_kps,
-    fallback_kps_for,
+    resolve_knowledge_points,
 )
 from app.services.question.historical import HistoricalBank, HistoricalQuestion, get_bank
 
@@ -54,11 +54,15 @@ class AdaptivePracticeService:
     # ---- 目标解析 ----
 
     def plan_for(self, student: Student) -> dict:
-        """解析出题目标：zpd 难度 / 目标难度（策略矩阵）/ 知识点列表。"""
+        """解析出题目标：zpd 难度 / 目标难度（策略矩阵）/ 知识点列表。
+
+        唯一目标解析入口（daily 与 adaptive 共用）：薄弱知识点不足 3 个时
+        用障碍映射补足（spec adaptive-practice-engine a2）。
+        """
         zpd = compute_zpd_difficulty(self.db, student.id)
         barrier = dominant_barrier(student)
         weak = extract_weak_kps(self.db, student.id, top_n=3)
-        kps = weak or fallback_kps_for(barrier)
+        kps = resolve_knowledge_points(weak, barrier)
         difficulty = adjust_difficulty(zpd, barrier)
         return {
             "zpd_difficulty": zpd,
