@@ -84,10 +84,11 @@
         return { teacher: '教师', admin: '管理员', dept_admin: '校级管理员', subject_lead: '学科负责人' }[role] || role;
       }
 
-      // 已登录教师直接进入工作台
+      // 已登录按角色直接进入对应入口（学生→练习页，教师→工作台）
       if (window.ChemAuth.getToken()) {
-        if (window.ChemAuth.isTeacherLike()) {
-          location.replace('exam-v2.html');
+        const target = window.ChemAuth.redirectAfterLogin();
+        if (target) {
+          location.replace(target);
         } else {
           window.ChemAuth.logout();
         }
@@ -106,13 +107,14 @@
         show('', false);
         try {
           const data = await window.ChemAuth.login(username, password);
-          if (window.ChemAuth.isTeacherLike()) {
-            show('登录成功，正在进入工作台…', false);
-            location.replace('exam-v2.html');
+          const target = window.ChemAuth.redirectAfterLogin();
+          if (target) {
+            show('登录成功，正在进入…', false);
+            location.replace(target);
           } else {
-            // 学生/家长等角色无工作台权限：清除会话并提示
+            // 家长等角色暂无可用页面：清除会话并提示
             window.ChemAuth.logout();
-            show('无权限：仅教师及以上角色可进入出题工作台（当前角色：' + roleLabel(data.role) + '）', true);
+            show('无权限：当前角色暂无可用页面（当前角色：' + roleLabel(data.role) + '）', true);
           }
         } catch (err) {
           show((err && err.message) || '登录失败，请稍后重试', true);

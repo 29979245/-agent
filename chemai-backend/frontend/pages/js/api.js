@@ -30,8 +30,12 @@
 
   function handleAuth(resp) {
     if (resp.status === 401) {
-      if (window.ChemAuth) window.ChemAuth.logout();
-      location.href = 'login.html';
+      if (window.ChemAuth) {
+        window.ChemAuth.logout();
+        window.ChemAuth.redirectToLogin();
+      } else {
+        location.href = 'login.html';
+      }
       throw new ApiError('登录已过期，请重新登录', 401);
     }
     if (resp.status === 403) {
@@ -232,6 +236,54 @@
     // 试卷导出：docx/pdf 二进制下载
     exportExam(examId, { format = 'docx', with_answers = false } = {}) {
       return fetchBlob('/api/question/export/' + examId, { query: { format, with_answers } });
+    },
+
+    // ---- 学生练习（/api/practice）----
+    studentPracticeTasks(studentId) {
+      return request('/api/practice/student/' + studentId + '/tasks');
+    },
+    studentPracticeSubmit(practiceId, answers) {
+      return request('/api/practice/submit', {
+        method: 'POST',
+        body: { practice_id: practiceId, answers },
+      });
+    },
+    studentEffect(studentId) {
+      return request('/api/practice/effect/' + studentId);
+    },
+
+    // ---- 学生复习（/api/review）----
+    studentReviewTasks(studentId) {
+      return request('/api/review/tasks/' + studentId);
+    },
+    studentReviewSubmit(reviewTaskId, passed) {
+      return request('/api/review/submit', {
+        method: 'POST',
+        body: { review_task_id: reviewTaskId, passed },
+      });
+    },
+
+    // ---- 学生错题（/api/wrong-questions）----
+    studentWrongQuestions(studentId) {
+      return request('/api/wrong-questions/' + studentId);
+    },
+    studentWrongVariants(questionId, count) {
+      return request('/api/wrong-questions/variants', {
+        method: 'POST',
+        body: { question_id: questionId, count: count || 1 },
+      });
+    },
+    studentWrongTrain(studentId, answers) {
+      return request('/api/wrong-questions/train', {
+        method: 'POST',
+        body: { student_id: studentId, answers },
+      });
+    },
+    studentWrongMastered(questionId, studentId) {
+      return request('/api/wrong-questions/' + questionId + '/mastered', {
+        method: 'POST',
+        body: { student_id: studentId },
+      });
     },
   };
 })();
