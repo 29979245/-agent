@@ -107,6 +107,7 @@ def _issue_tokens(
         "role": account.role.value,
         "name": name,
         "school_id": school_id,
+        "role_id": account.role_id,
     }
 
 

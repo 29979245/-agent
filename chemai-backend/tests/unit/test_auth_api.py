@@ -97,6 +97,7 @@ def test_login_success_issues_tokens(client, db_session):
     assert body["user_id"] == account.id
     assert body["name"] == "王老师"
     assert body["school_id"] == school.id
+    assert body["role_id"] == account.role_id
 
 
 def test_login_wrong_password(client, db_session):
@@ -150,11 +151,12 @@ def test_login_rejected_teacher_blocked(client, db_session):
 
 def test_student_login_resolves_school_id(client, db_session):
     _, grade, cls = _org(db_session)
-    _student_account(db_session, cls.id)
+    student, _ = _student_account(db_session, cls.id)
     resp = client.post("/api/auth/login", json={"username": "s1", "password": "Passw0rd!"})
     assert resp.status_code == 200
     assert resp.json()["role"] == "student"
     assert resp.json()["school_id"] == grade.school_id
+    assert resp.json()["role_id"] == student.id
 
 
 # ---- 7.5 家长登录 ----
