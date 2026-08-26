@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI助教 · ChemAI 智辅化学</title>
+  <link rel="stylesheet" href="css/student.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="title">AI助教</div>
+      <div class="topbar-right" id="studentName"></div>
+    </header>
+    <div class="placeholder">
+      <div class="icon">🤖</div>
+      AI 助教功能建设中<br />敬请期待
+    </div>
+    <nav class="tabbar" id="tabbar"></nav>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/student-common.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      const SA = window.StudentApp;
+      if (!SA.requireStudent()) return;
+      const me = SA.getUser ? SA.getUser() : null;
+      if (me && me.name) document.getElementById('studentName').textContent = me.name;
+      SA.renderTabbar('ai-tutor');
+    })();
+  </script>
+</body>
+</html>

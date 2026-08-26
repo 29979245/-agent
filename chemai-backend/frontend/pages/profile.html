@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>我的 · ChemAI 智辅化学</title>
+  <link rel="stylesheet" href="css/student.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="title">我的</div>
+      <div class="topbar-right" id="studentName"></div>
+    </header>
+
+    <section class="stats" style="padding-top:20px">
+      <div class="stat">
+        <div class="label">学号</div>
+        <div class="num" style="font-size:18px" id="studentId"></div>
+      </div>
+      <div class="stat">
+        <div class="label">练习进度</div>
+        <div class="num blue" style="font-size:18px" id="studentRole"></div>
+      </div>
+    </section>
+
+    <div class="menu">
+      <a class="menu-item" href="wrong.html">错题本</a>
+      <a class="menu-item" href="review.html">复习中心</a>
+    </div>
+
+    <div class="placeholder">
+      <div class="icon">🔧</div>
+      学习报告 / 个人设置建设中
+    </div>
+
+    <nav class="tabbar" id="tabbar"></nav>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/student-common.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      const SA = window.StudentApp;
+      if (!SA.requireStudent()) return;
+      const me = SA.getUser ? SA.getUser() : null;
+      if (me && me.name) document.getElementById('studentName').textContent = me.name;
+      document.getElementById('studentId').textContent = SA.studentId() || '—';
+      document.getElementById('studentRole').textContent = '自适应';
+      SA.renderTabbar('profile');
+    })();
+  </script>
+</body>
+</html>
