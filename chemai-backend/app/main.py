@@ -18,9 +18,13 @@ from app.api.v1.auth import auth_router, parent_router
 from app.api.v1.diagnosis import diagnosis_router
 from app.api.v1.exam import classes_router, exam_router
 from app.api.v1.exam_bank import exam_bank_router
+from app.api.v1.practice import practice_router
+from app.api.v1.review import review_router
+from app.api.v1.wrong_question import wrong_question_router
 from app.config import settings
 from app.core.exceptions import APIException
 from app.core.middleware import AuthMiddleware
+from app.services.exercise.scheduler import create_scheduler
 from app.services.question.historical import reload_bank
 from app.services.question.vector import reload_vector
 
@@ -45,7 +49,16 @@ def startup_services(exam_bank_dir: str | None = None, chroma_dir: str | None = 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     startup_services()
-    yield
+    scheduler = create_scheduler() if settings.enable_scheduler else None
+    if scheduler is not None:
+        scheduler.start()
+        logger.info("[DailyPractice] APScheduler 已启动（每日 08:00 UTC）")
+    try:
+        yield
+    finally:
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
+            logger.info("[DailyPractice] APScheduler 已关闭")
 
 
 app = FastAPI(
@@ -109,6 +122,9 @@ app.include_router(exam_bank_router, prefix="/api/exam-bank", tags=["exam-bank"]
 app.include_router(exam_router, prefix="/api/exam", tags=["exam"])
 app.include_router(classes_router, prefix="/api", tags=["org"])
 app.include_router(diagnosis_router, prefix="/api/diagnosis", tags=["diagnosis"])
+app.include_router(practice_router, prefix="/api/practice", tags=["practice"])
+app.include_router(review_router, prefix="/api/review", tags=["review"])
+app.include_router(wrong_question_router, prefix="/api/wrong-questions", tags=["wrong-questions"])
 
 # 静态页托管：/pages/login.html、/pages/exam-v2.html
 app.mount("/pages", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="pages")

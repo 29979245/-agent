@@ -26,6 +26,9 @@ class Settings:
     exam_bank_dir: str = str(BASE_DIR / "data" / "exam_bank")
     chroma_dir: str = str(BASE_DIR / "data" / "chroma")
 
+    # 调度（design.md D8）：默认关闭，测试避免后台线程；生产 .env 中开启
+    enable_scheduler: bool = False
+
     # LLM Provider（.env 中覆盖）
     llm_provider: str = "deepseek"   # deepseek / qwen / mimo
     llm_api_key: str = ""
