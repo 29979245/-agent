@@ -5,7 +5,7 @@ exam_type=exam 且已发布/完成的正式考试（D3），排除 per-student Z
 """
 import html
 from collections import Counter, defaultdict
-from datetime import date
+from datetime import date, datetime
 from typing import Iterable
 
 from sqlalchemy import func
@@ -24,6 +24,7 @@ from app.services.diagnosis.aggregation import normalize_profile
 from app.services.question.serializers import split_knowledge_points
 
 PUBLISHED_EXAM_STATUSES = (ExamStatus.published, ExamStatus.completed)
+STUDENT_COMPACT_TREND_POINTS = 6
 
 
 def _require_class(db: Session, class_id: int) -> Class:
@@ -78,6 +79,52 @@ def _exam_accuracy_points(db: Session, exams: list[ExamRecord]) -> list[tuple]:
         acc = sum(1 for a in ans if a.is_correct) / len(ans)
         points.append((e.exam_date, acc))
     return points
+
+
+def _students_exam_accuracy_points(
+    db: Session, class_id: int, student_ids: list[int]
+) -> dict[int, list[tuple]]:
+    """按考试计算每个学生的个人正确率：student_id → [(exam_date, accuracy)] 升序。
+
+    仅聚合正式考试（exam 类型、已发布/完成），与班级均分口径一致（design.md D3）。
+    """
+    result: dict[int, list[tuple]] = {sid: [] for sid in student_ids}
+    if not student_ids:
+        return result
+    exams = _class_exam_records(db, class_id)
+    exam_ids = [e.id for e in exams]
+    if not exam_ids:
+        return result
+    answers = (
+        db.query(StudentAnswer)
+        .filter(
+            StudentAnswer.student_id.in_(student_ids),
+            StudentAnswer.exam_id.in_(exam_ids),
+        )
+        .all()
+    )
+    by_student_exam: dict[tuple[int, int], list[bool]] = defaultdict(list)
+    for a in answers:
+        by_student_exam[(a.student_id, a.exam_id)].append(a.is_correct)
+    for e in exams:
+        for sid in student_ids:
+            accs = by_student_exam.get((sid, e.id))
+            if not accs:
+                continue
+            acc = sum(1 for c in accs if c) / len(accs)
+            result[sid].append((e.exam_date, acc))
+    return result
+
+
+def _score_trend_items(points: list[tuple], limit: int) -> list[dict]:
+    """成绩趋势点数组：按时间升序，取最近 limit 个，均分转百分比。"""
+    return [
+        {
+            "exam_date": ts.isoformat() if isinstance(ts, date) else ts.date().isoformat(),
+            "score": round(acc * 100, 2),
+        }
+        for ts, acc in points[-limit:]
+    ]
 
 
 # ---------------- 面板端点数据 ----------------
@@ -164,6 +211,9 @@ def load_student_detail(db: Session, class_id: int, student_id: int) -> dict:
     student = db.get(Student, student_id)
     if student is None or student.class_id != class_id:
         raise NotFoundError()
+    score_points = _students_exam_accuracy_points(
+        db, class_id, [student_id]
+    ).get(student_id, [])
     wrong_rows = (
         db.query(StudentAnswer, Question)
         .join(Question, StudentAnswer.question_id == Question.id)
@@ -193,6 +243,7 @@ def load_student_detail(db: Session, class_id: int, student_id: int) -> dict:
         "name": student.name,
         "barrier_profile": normalize_profile(student.barrier_profile),
         "weak_knowledge_points": [kp for kp, _ in weak.most_common(5)],
+        "score_trend": _score_trend_items(score_points, limit=TREND_POINTS),
         "wrong_history": wrong_history,
     }
 
@@ -210,6 +261,48 @@ def load_trend(db: Session, class_id: int) -> dict:
         for ts, acc in points
     ]
     return {"class_id": class_id, "trend": trend[-TREND_POINTS:]}
+
+
+def load_grade_trend(db: Session, grade_id: int) -> dict:
+    """GET /api/panel/grade/{grade_id}/trend：年级全部班级正式考试按 exam_date 归组均分。
+
+    跨该年级全部班级聚合作答（design.md D6），按考试日期升序，最多最近 TREND_POINTS 点。
+    """
+    grade = db.get(Grade, grade_id)
+    if grade is None:
+        raise NotFoundError()
+    class_ids = [c.id for c in db.query(Class).filter(Class.grade_id == grade_id).all()]
+    exams = (
+        db.query(ExamRecord)
+        .filter(
+            ExamRecord.class_id.in_(class_ids),
+            ExamRecord.exam_type == ExamType.exam,
+            ExamRecord.status.in_(PUBLISHED_EXAM_STATUSES),
+        )
+        .all()
+    ) if class_ids else []
+    exam_ids = [e.id for e in exams]
+    if not exam_ids:
+        return {"grade_id": grade_id, "trend": []}
+    exam_date_by_id = {e.id: e.exam_date for e in exams}
+    answers = (
+        db.query(StudentAnswer).filter(StudentAnswer.exam_id.in_(exam_ids)).all()
+    )
+    by_date: dict[date, list[bool]] = defaultdict(list)
+    for a in answers:
+        by_date[exam_date_by_id[a.exam_id]].append(a.is_correct)
+    points = [
+        (d, sum(1 for c in cs if c) / len(cs))
+        for d, cs in sorted(by_date.items())
+    ]
+    trend = [
+        {
+            "exam_date": d.isoformat() if isinstance(d, date) else str(d),
+            "avg_score": round(acc * 100, 2),
+        }
+        for d, acc in points[-TREND_POINTS:]
+    ]
+    return {"grade_id": grade_id, "trend": trend}
 
 
 def load_dashboard(db: Session, teacher_id: int) -> dict:
@@ -260,17 +353,62 @@ def _class_metrics(db: Session, cls: Class) -> dict:
     }
 
 
+def _student_activity_map(db: Session, students: list[Student]) -> dict[int, dict]:
+    """学生活跃状态：student_id → {"is_active", "last_exercise_at"}。
+
+    最近一次作答（任意作答）距今 ≤ 7 天为活跃；从未作答按注册时间 created_at 判定。
+    一次 GROUP BY student_id 的 MAX(answered_at) 查询聚合（design.md D6）。
+    """
+    if not students:
+        return {}
+    student_ids = [s.id for s in students]
+    rows = (
+        db.query(StudentAnswer.student_id, func.max(StudentAnswer.answered_at))
+        .filter(StudentAnswer.student_id.in_(student_ids))
+        .group_by(StudentAnswer.student_id)
+        .all()
+    )
+    last_by_student = {sid: ts for sid, ts in rows}
+    created_by_student = {s.id: s.created_at for s in students}
+    now = datetime.utcnow()
+    window = 7 * 24 * 3600
+    result = {}
+    for sid in student_ids:
+        last = last_by_student.get(sid)
+        if last is not None:
+            is_active = (now - last).total_seconds() <= window
+            last_iso = last.isoformat()
+        else:
+            created = created_by_student.get(sid)
+            is_active = created is not None and (now - created).total_seconds() <= window
+            last_iso = None
+        result[sid] = {"is_active": is_active, "last_exercise_at": last_iso}
+    return result
+
+
 def class_students(db: Session, class_id: int) -> dict:
-    """GET /api/classes/{class_id}/students：班级学生列表（id/name/barrier_profile）。"""
+    """GET /api/classes/{class_id}/students：班级学生列表（id/name/barrier/趋势/活跃）。"""
     cls = _require_class(db, class_id)
     students = (
         db.query(Student).filter(Student.class_id == class_id).order_by(Student.id).all()
     )
+    student_ids = [s.id for s in students]
+    points_by_student = _students_exam_accuracy_points(db, class_id, student_ids)
+    activity_by_student = _student_activity_map(db, students)
     return {
         "class_id": class_id,
         "class_name": cls.name,
         "items": [
-            {"id": s.id, "name": s.name, "barrier_profile": normalize_profile(s.barrier_profile)}
+            {
+                "id": s.id,
+                "name": s.name,
+                "barrier_profile": normalize_profile(s.barrier_profile),
+                "score_trend": _score_trend_items(
+                    points_by_student.get(s.id, []),
+                    limit=STUDENT_COMPACT_TREND_POINTS,
+                ),
+                **activity_by_student.get(s.id, {"is_active": False, "last_exercise_at": None}),
+            }
             for s in students
         ],
     }

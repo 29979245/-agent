@@ -4,6 +4,7 @@
 - GET /class/{class_id}/knowledge/{kp}       按知识点错误率分布与出错学生
 - GET /class/{class_id}/student/{student_id} 学生学情详情
 - GET /class/{class_id}/trend                 班级成绩趋势
+- GET /grade/{grade_id}/trend                 年级均分趋势
 - GET /export/{class_id}                      班级学情报告 PDF 导出
 - GET /dashboard/{teacher_id}                 教师首页概览
 
@@ -24,6 +25,7 @@ from app.services.analytics.panel_service import (
     class_students,
     load_class_panel,
     load_dashboard,
+    load_grade_trend,
     load_knowledge_detail,
     load_student_detail,
     load_trend,
@@ -65,6 +67,18 @@ def _require_own_dashboard(db: Session, request: Request, teacher_id: int) -> No
         raise ForbiddenError()
 
 
+def _require_grade_in_teacher_school(db: Session, request: Request, grade_id: int) -> None:
+    """教师仅可访问本校年级（组织链隔离）；admin+ 不限。年级不存在 → 404，跨校 → 403。"""
+    grade = db.get(Grade, grade_id)
+    if grade is None:
+        raise NotFoundError()
+    if request.state.user.role != "teacher":
+        return
+    teacher = db.get(Teacher, _role_id(db, request.state.user))
+    if teacher is None or grade.school_id != teacher.school_id:
+        raise ForbiddenError()
+
+
 @panel_router.get("/class/{class_id}")
 @require_permission("analysis", "read")
 def class_panel(
@@ -103,6 +117,16 @@ def class_trend(
     _ensure_not_student(request)
     _require_class_in_teacher_school(db, request, class_id)
     return load_trend(db, class_id)
+
+
+@panel_router.get("/grade/{grade_id}/trend")
+@require_permission("analysis", "read")
+def grade_trend(
+    request: Request, grade_id: int, db: Session = Depends(get_db)
+) -> dict:
+    _ensure_not_student(request)
+    _require_grade_in_teacher_school(db, request, grade_id)
+    return load_grade_trend(db, grade_id)
 
 
 @panel_router.get("/export/{class_id}")

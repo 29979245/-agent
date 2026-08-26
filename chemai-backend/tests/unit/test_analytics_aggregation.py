@@ -167,6 +167,38 @@ def test_build_class_panel_empty_data():
     assert overview["avg_score_trend"] == []
     assert overview["recent_exam_avg"] is None
     assert overview["recent_exam_date"] is None
+    assert overview["knowledge_mastery"] is None
     assert panel["knowledge_points"] == []
     assert panel["top_errors"] == []
     assert panel["barrier_distribution"] == {"concept": 0, "reading": 0, "expression": 0}
+
+
+# ---------------- 1.5 知识点掌握率 ----------------
+
+def test_build_class_panel_knowledge_mastery_percentage():
+    # 3 次标记知识点作答，其中 2 次正确 → 掌握率 2/3 = 66.67%
+    rows = [(1, True), (1, True), (2, False)]
+    kp_map = {1: ["氧化还原"], 2: ["离子反应"]}
+    panel = build_class_panel(
+        class_id=1, class_name="高一1班", students=[],
+        exam_points=[], rows=rows, kp_map=kp_map,
+    )
+    assert panel["class_overview"]["knowledge_mastery"] == 66.67
+
+
+def test_build_class_panel_knowledge_mastery_all_correct():
+    rows = [(1, True), (2, True)]
+    kp_map = {1: ["氧化还原"], 2: ["离子反应"]}
+    panel = build_class_panel(
+        class_id=1, class_name="高一1班", students=[],
+        exam_points=[], rows=rows, kp_map=kp_map,
+    )
+    assert panel["class_overview"]["knowledge_mastery"] == 100.0
+
+
+def test_build_class_panel_knowledge_mastery_null_when_no_answers():
+    panel = build_class_panel(
+        class_id=1, class_name="高一1班", students=[],
+        exam_points=[], rows=[], kp_map={},
+    )
+    assert panel["class_overview"]["knowledge_mastery"] is None

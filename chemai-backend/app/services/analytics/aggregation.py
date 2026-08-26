@@ -130,6 +130,11 @@ def build_class_panel(
     last_exam = exam_points[-1][0].date() if exam_points else None
 
     kp_rates = knowledge_point_error_rates(rows, kp_map)
+    kp_total = sum(item["total"] for item in kp_rates)
+    kp_errors = sum(item["errors"] for item in kp_rates)
+    kp_mastery = (
+        round((kp_total - kp_errors) / kp_total * 100, 2) if kp_total > 0 else None
+    )
     return {
         "class_overview": {
             "class_id": class_id,
@@ -139,6 +144,7 @@ def build_class_panel(
             "avg_score_trend": trend,
             "recent_exam_avg": round(weighted * 100, 2) if weighted is not None else None,
             "recent_exam_date": last_exam.isoformat() if last_exam else None,
+            "knowledge_mastery": kp_mastery,
         },
         "knowledge_points": kp_rates[:TOP_KNOWLEDGE_POINTS],
         "top_errors": kp_rates[:TOP_ERRORS],

@@ -240,6 +240,11 @@ def test_student_detail(exercise_client):
     assert body["barrier_profile"] == {"concept": 0.6, "reading": 0.2, "expression": 0.2}
     assert body["weak_knowledge_points"] == ["氧化还原"]  # 仅错题知识点
     assert len(body["wrong_history"]) == 1
+    # 个人成绩趋势：期中 0%（错 1 题）、期末 100%（对 1 题），按时间升序
+    assert body["score_trend"] == [
+        {"exam_date": ctx.exam1.exam_date.isoformat(), "score": 0.0},
+        {"exam_date": ctx.exam2.exam_date.isoformat(), "score": 100.0},
+    ]
 
 
 def test_student_detail_cross_class_404(exercise_client):
@@ -283,6 +288,61 @@ def test_trend_empty_array(exercise_client):
     resp = client.get(f"/api/panel/class/{cls.id}/trend", headers=_auth(tacc))
     assert resp.status_code == 200
     assert resp.json()["trend"] == []
+
+
+# ---------------- 2.5 年级均分趋势 ----------------
+
+def test_grade_trend_has_data(exercise_client):
+    client, db = exercise_client
+    ctx = _setup_class_data(db)
+    resp = client.get(f"/api/panel/grade/{ctx.grade.id}/trend", headers=_auth(ctx.tacc))
+    assert resp.status_code == 200
+    trend = resp.json()["trend"]
+    assert [p["exam_date"] for p in trend] == sorted(p["exam_date"] for p in trend)
+    assert trend == [
+        {"exam_date": ctx.exam1.exam_date.isoformat(), "avg_score": 50.0},
+        {"exam_date": ctx.exam2.exam_date.isoformat(), "avg_score": 100.0},
+    ]
+
+
+def test_grade_trend_aggregates_across_classes(exercise_client):
+    """同年级两班同日考试：作答合并后按日期归组算正确率。"""
+    client, db = exercise_client
+    ctx = _setup_class_data(db)
+    cls2 = _class(db, ctx.grade, "2班")
+    s3 = _student(db, cls2, "王五", {})
+    exam3 = _exam(db, cls2, "期中2", ctx.exam1.exam_date)  # 与 1 班期中同一天
+    q3 = _question(db, "化学平衡")
+    _answer(db, s3, q3, exam3, is_correct=False)
+    db.commit()
+    resp = client.get(f"/api/panel/grade/{ctx.grade.id}/trend", headers=_auth(ctx.tacc))
+    assert resp.status_code == 200
+    trend = resp.json()["trend"]
+    # 期中当日合并：1班 1/2 正确 + 2班 0/1 正确 → 1/3
+    assert trend[0]["exam_date"] == ctx.exam1.exam_date.isoformat()
+    assert trend[0]["avg_score"] == round(1 / 3 * 100, 2)
+    assert trend[1]["avg_score"] == 100.0
+
+
+def test_grade_trend_empty(exercise_client):
+    client, db = exercise_client
+    school = _school(db)
+    grade = _grade(db, school)
+    cls = _class(db, grade, "空班")
+    teacher, tacc = _teacher(db, school, "陈老师")
+    db.commit()
+    resp = client.get(f"/api/panel/grade/{grade.id}/trend", headers=_auth(tacc))
+    assert resp.status_code == 200
+    assert resp.json()["trend"] == []
+
+
+def test_grade_trend_cross_school_forbidden(exercise_client):
+    client, db = exercise_client
+    ctx_a = _setup_class_data(db)
+    t_b, acc_b = _teacher(db, _school(db, "B校"), "赵老师")
+    db.commit()
+    resp = client.get(f"/api/panel/grade/{ctx_a.grade.id}/trend", headers=_auth(acc_b))
+    assert resp.status_code == 403
 
 
 # ---------------- 2.5 教师首页概览 ----------------
@@ -354,6 +414,16 @@ def test_class_students_list(exercise_client):
     s1 = next(s for s in body["items"] if s["id"] == ctx.s1.id)
     assert s1["name"] == "张三"
     assert s1["barrier_profile"] == {"concept": 0.6, "reading": 0.2, "expression": 0.2}
+    # 紧凑趋势：每生最近 6 点；张三 期中 0% / 期末 100%
+    assert s1["score_trend"] == [
+        {"exam_date": ctx.exam1.exam_date.isoformat(), "score": 0.0},
+        {"exam_date": ctx.exam2.exam_date.isoformat(), "score": 100.0},
+    ]
+    s2 = next(s for s in body["items"] if s["id"] == ctx.s2.id)
+    assert s2["score_trend"] == [
+        {"exam_date": ctx.exam1.exam_date.isoformat(), "score": 100.0},
+        {"exam_date": ctx.exam2.exam_date.isoformat(), "score": 100.0},
+    ]
 
 
 def test_class_students_not_found(exercise_client):
@@ -361,6 +431,68 @@ def test_class_students_not_found(exercise_client):
     ctx = _setup_class_data(db)
     resp = client.get("/api/classes/99999/students", headers=_auth(ctx.tacc))
     assert resp.status_code == 404
+
+
+# ---------------- 4.3 /api/classes 教师隔离 ----------------
+
+def test_classes_teacher_sees_only_own_school(exercise_client):
+    client, db = exercise_client
+    ctx = _setup_class_data(db)  # A 校 1 班
+    school_b = _school(db, "B校")
+    cls_b = _class(db, _grade(db, school_b), "B班")
+    t_b, acc_b = _teacher(db, school_b, "赵老师")
+    db.commit()
+    resp_a = client.get("/api/classes", headers=_auth(ctx.tacc))
+    ids_a = {c["id"] for c in resp_a.json()["items"]}
+    assert ctx.cls.id in ids_a
+    assert cls_b.id not in ids_a
+    resp_b = client.get("/api/classes", headers=_auth(acc_b))
+    ids_b = {c["id"] for c in resp_b.json()["items"]}
+    assert cls_b.id in ids_b
+    assert ctx.cls.id not in ids_b
+
+
+def test_classes_admin_sees_all(exercise_client):
+    client, db = exercise_client
+    ctx = _setup_class_data(db)
+    cls_b = _class(db, _grade(db, _school(db, "B校")), "B班")
+    admin_acc = Account(username="admin", password_hash="x", role=AccountRole.admin, role_id=1)
+    db.add(admin_acc)
+    db.commit()
+    resp = client.get("/api/classes", headers=_auth(admin_acc, role="admin"))
+    ids = {c["id"] for c in resp.json()["items"]}
+    assert ctx.cls.id in ids
+    assert cls_b.id in ids
+
+
+def test_class_students_activity_state(exercise_client):
+    """活跃状态三例：最近作答≤7天活跃、超期作答不活跃、从未作答按注册时间。"""
+    client, db = exercise_client
+    ctx = _setup_class_data(db)
+    # 超期作答学生（10 天前）
+    stale = _student(db, ctx.cls, "超期生", {})
+    stale_exam = _exam(db, ctx.cls, "早考", _TODAY - datetime.timedelta(days=12))
+    _answer(db, stale, _question(db, "基础"), stale_exam, is_correct=True,
+            answered_at=datetime.datetime.utcnow() - datetime.timedelta(days=10))
+    # 从未作答 + 注册 10 天前 → 不活跃
+    never_old = _student(db, ctx.cls, "从未旧", {})
+    never_old.created_at = datetime.datetime.utcnow() - datetime.timedelta(days=10)
+    # 从未作答 + 注册今天 → 活跃（按注册时间 ≤ 7 天）
+    never_fresh = _student(db, ctx.cls, "从未新", {})
+    never_fresh.created_at = datetime.datetime.utcnow()
+    db.commit()
+
+    resp = client.get(f"/api/classes/{ctx.cls.id}/students", headers=_auth(ctx.tacc))
+    assert resp.status_code == 200
+    by_name = {s["name"]: s for s in resp.json()["items"]}
+    assert by_name["张三"]["is_active"] is True  # 今日作答
+    assert by_name["张三"]["last_exercise_at"] is not None
+    assert by_name["超期生"]["is_active"] is False  # 10 天前作答
+    assert by_name["超期生"]["last_exercise_at"] is not None
+    assert by_name["从未旧"]["is_active"] is False  # 从未作答 + 注册超 7 天
+    assert by_name["从未旧"]["last_exercise_at"] is None
+    assert by_name["从未新"]["is_active"] is True  # 从未作答但注册 ≤ 7 天
+    assert by_name["从未新"]["last_exercise_at"] is None
 
 
 # ---------------- 4.1 学生角色 403 ----------------

@@ -6,6 +6,7 @@ EXPECTED_ROUTES = {
     "/api/panel/class/{class_id}/knowledge/{knowledge_point}",
     "/api/panel/class/{class_id}/student/{student_id}",
     "/api/panel/class/{class_id}/trend",
+    "/api/panel/grade/{grade_id}/trend",
     "/api/panel/export/{class_id}",
     "/api/panel/dashboard/{teacher_id}",
     "/api/classes/{class_id}/students",
@@ -20,4 +21,4 @@ def test_panel_routes_registered():
 def test_panel_router_reachable_via_app():
     # 确认面板路由挂载在 /api/panel 前缀下，未被其他路由遮蔽
     panel_paths = [r.path for r in app.routes if getattr(r, "path", "").startswith("/api/panel")]
-    assert len(panel_paths) == 6
+    assert len(panel_paths) == 7
