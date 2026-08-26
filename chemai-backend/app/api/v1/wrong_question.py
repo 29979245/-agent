@@ -120,4 +120,6 @@ def mastered(
     db: Session = Depends(get_db),
 ) -> dict:
     _require_own(db, request.state.user, payload.student_id)
-    return WrongQuestionTrainer(db).mark_mastered(payload.student_id, question_id)
+    result = WrongQuestionTrainer(db).mark_mastered(payload.student_id, question_id)
+    db.commit()  # get_db 不自动提交，缺 commit 会导致已掌握状态不落库
+    return result
