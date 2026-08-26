@@ -90,6 +90,12 @@ def test_wrong_list_dedup_and_error_count(db_session, env):
     assert by_q[q2.id]["error_count"] == 1
     assert items[0]["question_id"] == q2.id  # 最近作答倒序
     assert items[0]["knowledge_points"] == ["化学平衡"]
+    # 错题卡片规格（doc 29 §8.1）：必须返回正确答案/学生答案/解析
+    assert by_q[q1.id]["answer"] == "a"
+    assert by_q[q1.id]["your_answer"] == "a"
+    assert by_q[q1.id]["analysis"] == ""
+    assert by_q[q2.id]["answer"] == "a"
+    assert by_q[q2.id]["your_answer"] == "a"
 
 
 def test_wrong_list_empty(db_session, env):

@@ -119,6 +119,9 @@
             '<div class="opt-row"><span class="letter">' + String.fromCharCode(65 + j) + '</span>' +
             '<span>' + SA.renderMarkdown(o) + '</span></div>'
           ).join('');
+          const yourAns = it.your_answer ? '<div class="ans-row wrong">你的答案：' + SA.renderMarkdown(it.your_answer) + '</div>' : '';
+          const correctAns = it.answer ? '<div class="ans-row correct">正确答案：' + SA.renderMarkdown(it.answer) + '</div>' : '';
+          const analysis = it.analysis ? '<div class="explain">解析：' + SA.renderMarkdown(it.analysis) + '</div>' : '';
           return '<article class="card">' +
             '<div class="card-header" onclick="window.__toggle(this)">' +
             '<div class="left"><span class="qnum">#' + (i + 1) + '</span>' +
@@ -129,6 +132,7 @@
             '<div class="content"><div class="content-inner">' +
             '<p class="question">' + SA.renderMarkdown(it.content) + '</p>' +
             (opts ? '<div class="options">' + opts + '</div>' : '') +
+            yourAns + correctAns + analysis +
             (chips ? '<div class="chips">' + chips + '</div>' : '') +
             '<div class="actions">' +
             '<button class="btn teal" onclick="window.__generate(' + it.question_id + ')">生成变式题</button>' +
