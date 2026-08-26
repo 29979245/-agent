@@ -190,6 +190,7 @@ h1, h2, h3, .serif { font-family: "Cormorant Garamond", Georgia, "Songti SC", "S
 .btn.green { background: var(--green); }
 .btn:active { opacity: .85; }
 .btn:disabled { opacity: .6; cursor: not-allowed; }
+.btn.active { box-shadow: inset 0 0 0 2px #fff; }
 .q-btn {
   width: 100%;
   height: 36px;

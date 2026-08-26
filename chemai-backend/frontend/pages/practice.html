@@ -77,6 +77,7 @@
       let answers = {};      // question_id -> selected option text
       let qIndex = 0;
       let results = null;    // submit 响应
+      let opSeq = 0;         // 操作代际号：返回列表后使进行中的加载/提交失效
 
       const $ = (id) => document.getElementById(id);
 
@@ -111,6 +112,8 @@
           const saved = savedAnswers(t.practice_id);
           const done = Object.keys(saved).length;
           const total = t.question_count || 0;
+          // 已完成任务的 sessionStorage 已在提交后清除，进度按 total/total 展示，避免 0/N 配满条
+          const shownDone = t.status === 'completed' ? total : done;
           const pct = t.status === 'completed' ? 100 : Math.min(100, Math.round((done / Math.max(total, 1)) * 100));
           const expired = t.status === 'expired';
           const btnText = expired ? '已过期' : (t.status === 'completed' ? '已完成' : (done > 0 ? '继续练习' : '开始练习'));
@@ -126,7 +129,7 @@
             '<div class="chips">' + chips.join('') + '</div>' +
             '<div class="progress-row">' +
             '<div class="track"><div class="track-fill" style="width:' + pct + '%"></div></div>' +
-            '<span class="progress-text">' + done + '/' + total + '</span>' +
+            '<span class="progress-text">' + shownDone + '/' + total + '</span>' +
             '</div>' +
             '<button class="card-btn" ' + ((expired || t.status === 'completed') ? 'disabled' : '') + ' onclick="window.__start(' + t.practice_id + ')">' + btnText + '</button>' +
             '</article>';
@@ -143,9 +146,15 @@
       async function startPractice(pid) {
         const t = tasks.find((x) => x.practice_id === pid);
         if (!t || t.status === 'completed' || t.status === 'expired') return;
+        const seq = ++opSeq;
         practice = { practice_id: pid, title: t.title };
         const data = await A.getExamQuestions(pid);
+        if (seq !== opSeq) return;  // 加载期间已返回列表，丢弃迟到响应
         questions = data.items || [];
+        if (!questions.length) {    // 无题不切视图，避免卡在空白答题屏
+          SA.toast('该练习暂无题目');
+          return;
+        }
         answers = savedAnswers(pid);
         qIndex = 0;
         $('ansTitle').textContent = t.title;
@@ -203,11 +212,13 @@
           if (!ok) return;
         }
         const payload = questions.map((q) => ({ question_id: q.question_id, selected_option: answers[q.question_id] || '' }));
+        const seq = opSeq;
         const btn = $('btnNext');
         btn.disabled = true;
         btn.textContent = '提交中…';
         try {
           results = await A.studentPracticeSubmit(practice.practice_id, payload);
+          if (seq !== opSeq) return;  // 提交期间已返回列表，不强制翻到结果视图
           sessionStorage.removeItem(storageKey(practice.practice_id));
           showResult();
         } catch (err) {
@@ -245,6 +256,7 @@
       }
 
       function backToList() {
+        opSeq += 1;  // 使进行中的加载/提交失效
         $('view-answer').classList.add('hidden');
         $('view-result').classList.add('hidden');
         $('view-list').classList.remove('hidden');
@@ -260,10 +272,15 @@
 
       SA.renderTabbar('practice');
       loadTasks().catch((err) => {
-        if (err && err.status !== 401 && err.status !== 403) {
+        if (!err) return;
+        if (err.status === 401) return;  // 已由 api.js 处理跳转
+        if (err.status === 403) {
           $('taskList').innerHTML = '';
-          SA.emptyState($('taskList'), ((err && err.message) || '加载失败，请重试'));
+          SA.emptyState($('taskList'), '无权限访问练习任务');
+          return;
         }
+        $('taskList').innerHTML = '';
+        SA.emptyState($('taskList'), ((err && err.message) || '加载失败，请重试'));
       });
     })();
   </script>

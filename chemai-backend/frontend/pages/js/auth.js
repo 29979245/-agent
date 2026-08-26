@@ -36,9 +36,11 @@
       if (this.isTeacherLike()) return 'exam-v2.html';
       return null;
     },
-    // 未认证/过期跳转：按已存角色回到对应登录页
-    redirectToLogin() {
-      location.href = this.isStudent() ? 'student-login.html' : 'login.html';
+    // 未认证/过期跳转：logout 后 user 已清无法推断角色，需调用方传 forceStudent；
+    // 无参时按当前 user 推断（保留历史行为）
+    redirectToLogin(forceStudent) {
+      const student = forceStudent !== undefined ? forceStudent : this.isStudent();
+      location.href = student ? 'student-login.html' : 'login.html';
     },
     saveSession(token, user) {
       localStorage.setItem(TOKEN_KEY, token);

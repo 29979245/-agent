@@ -57,13 +57,19 @@
   window.StudentApp = {
     requireStudent() {
       if (!window.ChemAuth.getToken()) {
-        window.ChemAuth.redirectToLogin();
+        window.ChemAuth.redirectToLogin(true);  // 学生页无会话，回学生登录页
         return false;
       }
       if (!window.ChemAuth.isStudent()) {
         const target = window.ChemAuth.redirectAfterLogin();
         if (target) location.replace(target);
         else window.ChemAuth.redirectToLogin();
+        return false;
+      }
+      if (!window.ChemAuth.getStudentId()) {
+        // 登录态缺 student_id：清会话回登录页重登，不发业务请求（规格 student-auth）
+        window.ChemAuth.logout();
+        location.href = 'student-login.html';
         return false;
       }
       return true;

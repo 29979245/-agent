@@ -84,6 +84,7 @@
       let trainIndex = 0;
       let trainShortfall = 0;
       let trainResults = null;              // /train 响应
+      let opSeq = 0;                        // 操作代际号：返回列表后使进行中的加载/提交失效
 
       const $ = (id) => document.getElementById(id);
 
@@ -148,9 +149,11 @@
 
       // ---- 变式训练 ----
       async function generate(questionId) {
+        const seq = ++opSeq;
         SA.toast('正在生成变式题…');
         try {
           const data = await A.studentWrongVariants(questionId, 3);
+          if (seq !== opSeq) return;  // 等待期间已返回列表，丢弃迟到响应
           trainQuestions = data.questions || [];
           trainShortfall = data.shortfall || 0;
           if (!trainQuestions.length) {
@@ -209,11 +212,13 @@
           if (!ok) return;
         }
         const payload = trainQuestions.map((q) => ({ question_id: q.question_id, selected_option: trainAnswers[q.question_id] || '' }));
+        const seq = opSeq;
         const btn = $('trainNext');
         btn.disabled = true;
         btn.textContent = '提交中…';
         try {
           trainResults = await A.studentWrongTrain(SA.studentId(), payload);
+          if (seq !== opSeq) return;  // 提交期间已返回列表，不强制翻到结果视图
           showTrainResult();
         } catch (err) {
           SA.toast('提交失败：' + ((err && err.message) || '请重试'));
@@ -226,7 +231,8 @@
       function showTrainResult() {
         $('view-train').classList.add('hidden');
         $('view-result').classList.remove('hidden');
-        const acc = Math.round((trainResults.results.filter((r) => r.is_correct).length / Math.max(trainResults.question_count, 1)) * 100);
+        const res = trainResults.results || [];
+        const acc = Math.round((res.filter((r) => r.is_correct).length / Math.max(trainResults.question_count, 1)) * 100);
         const rows = trainQuestions.map((q, i) => {
           const r = (trainResults.results || []).find((x) => x.question_id === q.question_id);
           const ok = r && r.is_correct;
@@ -242,7 +248,7 @@
             '</article>';
         }).join('');
         $('resultBox').innerHTML =
-          '<div class="result-box"><div class="result-score">' + trainResults.results.filter((r) => r.is_correct).length + '/' + trainResults.question_count + '</div>' +
+          '<div class="result-box"><div class="result-score">' + res.filter((r) => r.is_correct).length + '/' + trainResults.question_count + '</div>' +
           '<div class="result-label">正确率 ' + acc + '%</div></div>' +
           '<div class="section-title">逐题判定</div>' +
           rows +
@@ -265,6 +271,7 @@
       }
 
       function backToList() {
+        opSeq += 1;  // 使进行中的加载/提交失效
         $('view-train').classList.add('hidden');
         $('view-result').classList.add('hidden');
         $('view-list').classList.remove('hidden');
@@ -279,10 +286,15 @@
 
       SA.renderTabbar('wrong');
       load().catch((err) => {
-        if (err && err.status !== 401 && err.status !== 403) {
+        if (!err) return;
+        if (err.status === 401) return;  // 已由 api.js 处理跳转
+        if (err.status === 403) {
           $('wrongList').innerHTML = '';
-          SA.emptyState($('wrongList'), ((err && err.message) || '加载失败，请重试'));
+          SA.emptyState($('wrongList'), '无权限访问错题本');
+          return;
         }
+        $('wrongList').innerHTML = '';
+        SA.emptyState($('wrongList'), ((err && err.message) || '加载失败，请重试'));
       });
     })();
   </script>
