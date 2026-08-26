@@ -106,12 +106,11 @@ class ReviewLevel(str, enum.Enum):
 
 
 class ReviewTaskStatus(str, enum.Enum):
-    """复习任务状态。"""
+    """复习任务三态：待复习 / 超期 / 已掌握（终态）。"""
 
     pending = "pending"
-    in_progress = "in_progress"
-    completed = "completed"
-    archived = "archived"
+    overdue = "overdue"
+    done = "done"
 
 
 class ParentBindingStatus(str, enum.Enum):
