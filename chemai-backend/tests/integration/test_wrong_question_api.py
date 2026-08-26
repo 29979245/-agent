@@ -2,7 +2,11 @@
 import datetime
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+from app.db.base import Base
 from app.db.models import (
     ExamRecord,
     ExamType,
@@ -12,6 +16,8 @@ from app.db.models import (
     StudentAnswer,
 )
 from app.db.models.enums import Difficulty, QuestionSource, AuditStatus, ReviewTaskStatus
+from app.db.session import get_db
+from app.main import app
 from app.services.question.historical import reload_bank
 from tests.integration.conftest import _account, _headers, _practice_exam, _student
 
@@ -159,3 +165,108 @@ def test_mastered_not_own_403(exercise_client):
     resp = client.post(f"/api/wrong-questions/{exam_b.questions[0].id}/mastered",
                        json={"student_id": stu_b.id}, headers=_headers(acc_a))
     assert resp.status_code == 403
+
+
+# ---------------- 跨会话持久化（生产等价：每请求独立会话） ----------------
+
+@pytest.fixture()
+def file_client(tmp_path):
+    """文件库 + 每请求独立会话：请求结束未 commit 即回滚，可跨会话断言落库。"""
+    engine = create_engine(f"sqlite:///{tmp_path / 'persist.db'}")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autocommit=False, autoflush=False,
+                           expire_on_commit=False)
+
+    def _get_db():
+        s = factory()
+        try:
+            yield s
+        finally:
+            s.close()
+
+    app.dependency_overrides[get_db] = _get_db
+    with TestClient(app) as c:
+        yield c, factory
+    app.dependency_overrides.clear()
+    engine.dispose()
+
+
+def _seed_q_with_account(factory):
+    db = factory()
+    stu = _student(db)
+    acc = _account(db, stu)
+    q = Question(content="真题A", options=["A", "B"], answer="A",
+                 knowledge_points="氧化还原反应", difficulty=Difficulty.easy,
+                 source=QuestionSource.practice, audit_status=AuditStatus.passed,
+                 audit_report={}, record_id=None)
+    db.add(q)
+    db.commit()
+    db.close()
+    return stu, acc, q
+
+
+def test_train_persists_across_sessions(file_client):
+    """训练会话的 ExamRecord / StudentAnswer / ReviewTask 在请求结束后仍落库。"""
+    client, factory = file_client
+    stu, acc, q = _seed_q_with_account(factory)
+    resp = client.post("/api/wrong-questions/train",
+                       json={"student_id": stu.id,
+                             "answers": [{"question_id": q.id, "selected_option": "x"}]},
+                       headers=_headers(acc))
+    assert resp.status_code == 200
+    assert resp.json()["results"][0]["is_correct"] is False
+    db = factory()  # 全新会话：若请求未 commit，下面全查不到
+    try:
+        rec = db.query(ExamRecord).filter_by(student_id=stu.id).first()
+        print(f"\n[DEBUG] fresh-session rec={rec} stuid={stu.id}")
+        assert rec is not None and rec.question_stats["mode"] == "training"
+        assert db.query(StudentAnswer).filter_by(
+            student_id=stu.id, question_id=q.id, is_correct=False).count() == 1
+        task = db.query(ReviewTask).filter_by(student_id=stu.id, question_id=q.id).first()
+        assert task is not None and task.status == ReviewTaskStatus.pending
+    finally:
+        db.close()
+
+
+def test_variants_persist_across_sessions(file_client, tmp_path):
+    """变式题生成的 ExamRecord 与复制题目在请求结束后仍落库。"""
+    _load_bank(tmp_path)
+    client, factory = file_client
+    stu, acc, original = _seed_q_with_account(factory)
+    resp = client.post("/api/wrong-questions/variants",
+                       json={"question_id": original.id, "count": 1},
+                       headers=_headers(acc))
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["question_count"] == 1
+    variant_content = body["questions"][0]["content"]
+    assert variant_content != original.content
+    db = factory()
+    try:
+        rec = db.get(ExamRecord, body["exam_id"])
+        assert rec is not None and rec.student_id == stu.id
+        assert db.query(Question).filter(Question.content == variant_content).count() == 1
+    finally:
+        db.close()
+
+
+def test_mastered_persists_across_sessions(file_client):
+    """标记已掌握的 ReviewTask 置 done 在请求结束后仍落库（回归：缺 commit）。"""
+    client, factory = file_client
+    stu, acc, q = _seed_q_with_account(factory)
+    # 先训练产生错题 → 生成 pending ReviewTask
+    resp = client.post("/api/wrong-questions/train",
+                       json={"student_id": stu.id,
+                             "answers": [{"question_id": q.id, "selected_option": "x"}]},
+                       headers=_headers(acc))
+    assert resp.status_code == 200
+    resp = client.post(f"/api/wrong-questions/{q.id}/mastered",
+                       json={"student_id": stu.id}, headers=_headers(acc))
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "done"
+    db = factory()  # 全新会话：若 mastered 未 commit，done 状态查不到
+    try:
+        task = db.query(ReviewTask).filter_by(student_id=stu.id, question_id=q.id).first()
+        assert task is not None and task.status == ReviewTaskStatus.done
+    finally:
+        db.close()

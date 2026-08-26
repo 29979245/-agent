@@ -76,7 +76,9 @@ def variants(
     db: Session = Depends(get_db),
 ) -> dict:
     student_id = _role_id(db, request.state.user)
-    return WrongQuestionTrainer(db).generate_variants(student_id, payload.question_id, payload.count)
+    result = WrongQuestionTrainer(db).generate_variants(student_id, payload.question_id, payload.count)
+    db.commit()  # get_db 不自动提交，缺 commit 会导致变式题与训练记录不落库
+    return result
 
 
 # ---------------- 7.3 训练会话 ----------------
@@ -99,10 +101,12 @@ def train(
     db: Session = Depends(get_db),
 ) -> dict:
     _require_own(db, request.state.user, payload.student_id)
-    return WrongQuestionTrainer(db).start_training(
+    result = WrongQuestionTrainer(db).start_training(
         payload.student_id,
         [{"question_id": a.question_id, "selected_option": a.selected_option} for a in payload.answers],
     )
+    db.commit()  # get_db 不自动提交，缺 commit 会导致训练作答与复习任务不落库
+    return result
 
 
 # ---------------- 7.4 标记已掌握 ----------------
