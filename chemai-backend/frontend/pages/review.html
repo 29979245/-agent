@@ -126,6 +126,11 @@
         if (idx < 0) return;
         current = { task: tasks[idx], index: idx };
         $('judgeProgress').textContent = (idx + 1) + '/' + tasks.length;
+        // 上次提交会禁用按钮；进入新判级时复位，否则下一题无法点选
+        $('btnCorrect').disabled = false;
+        $('btnWrong').disabled = false;
+        $('btnCorrect').classList.remove('active');
+        $('btnWrong').classList.remove('active');
         renderJudge();
         $('view-list').classList.add('hidden');
         $('view-judge').classList.remove('hidden');
