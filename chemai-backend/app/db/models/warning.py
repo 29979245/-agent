@@ -26,19 +26,19 @@ class WarningLog(Base):
     )
     level: Mapped[WarningLevel] = mapped_column(DbEnum(WarningLevel), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
-    content: Mapped[str] = mapped_column(String(2000), default="")
+    content: Mapped[str] = mapped_column(String(2000), default="", nullable=False)
     data: Mapped[dict] = mapped_column(
         MutableDict.as_mutable(JSON), nullable=False, default=dict
     )  # 结构化指标：未登录天数/降幅/错题率
     status: Mapped[WarningStatus] = mapped_column(
-        DbEnum(WarningStatus), default=WarningStatus.pending
+        DbEnum(WarningStatus), default=WarningStatus.pending, nullable=False
     )
     processed_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     processed_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    notified_teacher: Mapped[bool] = mapped_column(Boolean, default=False)
-    notified_parent: Mapped[bool] = mapped_column(Boolean, default=False)
-    notified_student: Mapped[bool] = mapped_column(Boolean, default=False)  # 学生端通知预留
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    notified_teacher: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    notified_parent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    notified_student: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # 学生端通知预留
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     student: Mapped["Student"] = relationship()  # noqa: F821
