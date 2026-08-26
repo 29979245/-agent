@@ -286,3 +286,28 @@ def test_teacher_own_school_allowed(exercise_client):
     r = client.put(f"/api/warning/{w.id}/process", headers=_auth(tacc_a),
                    json={"action": "processed", "note": "本校处理"})
     assert r.status_code == 200
+
+
+def test_teacher_cross_school_pending_without_class_id(exercise_client):
+    """教师无 class_id 查 pending：仅本校，他校预警不可见（组织链隔离）。"""
+    client, db = exercise_client
+    _, _, _, s1, _, _, _ = _setup(db, "A校")
+    _warning(db, s1, WarningType.no_login, WarningLevel.warning)
+    school_b = _school(db, "B校")
+    _, tacc_b = _teacher(db, school_b, "赵老师")
+    db.commit()
+    r = client.get("/api/warning/pending", headers=_auth(tacc_b))
+    assert r.status_code == 200
+    assert r.json()["items"] == []
+
+
+def test_teacher_own_school_pending_without_class_id(exercise_client):
+    """教师无 class_id 查 pending：可见本校全部预警。"""
+    client, db = exercise_client
+    _, _, _, s1, _, tacc_a, _ = _setup(db, "A校")
+    _warning(db, s1, WarningType.no_login, WarningLevel.warning)
+    db.commit()
+    r = client.get("/api/warning/pending", headers=_auth(tacc_a))
+    assert r.status_code == 200
+    assert len(r.json()["items"]) == 1
+    assert r.json()["items"][0]["student_name"] == "张三"

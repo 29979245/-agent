@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
 from app.core.permissions import require_permission
-from app.db.models import Class, Student, WarningLog
+from app.db.models import Class, Grade, Student, Teacher, WarningLog
 from app.db.models.enums import WarningLevel, WarningStatus
 from app.db.session import get_db
 from app.services.analytics.early_warning import EarlyWarningService
@@ -94,6 +94,18 @@ def pending_warnings(
             s.id for s in db.query(Student).filter(Student.class_id == class_id).all()
         ]
         query = query.filter(WarningLog.student_id.in_(student_ids)) if student_ids else query.filter(False)
+    elif request.state.user.role == "teacher":
+        # 未指定班级：教师仅见本校全部 pending（组织链隔离，spec「教师仅可查看本校预警」）
+        teacher = db.get(Teacher, _role_id(db, request.state.user))
+        if teacher is None:
+            raise ForbiddenError()
+        school_student_ids = (
+            db.query(Student.id)
+            .join(Class, Class.id == Student.class_id)
+            .join(Grade, Grade.id == Class.grade_id)
+            .filter(Grade.school_id == teacher.school_id)
+        )
+        query = query.filter(WarningLog.student_id.in_(school_student_ids))
     rows = query.order_by(WarningLog.created_at.desc(), WarningLog.id.desc()).all()
     students, classes = _name_maps(db, rows)
     return {"items": [_serialize(w, students, classes) for w in rows]}
