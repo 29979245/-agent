@@ -21,6 +21,7 @@ from app.api.v1.exam_bank import exam_bank_router
 from app.api.v1.panel import panel_router
 from app.api.v1.practice import practice_router
 from app.api.v1.review import review_router
+from app.api.v1.warning import warning_router
 from app.api.v1.wrong_question import wrong_question_router
 from app.config import settings
 from app.core.exceptions import APIException
@@ -126,6 +127,7 @@ app.include_router(panel_router, prefix="/api/panel", tags=["panel"])
 app.include_router(diagnosis_router, prefix="/api/diagnosis", tags=["diagnosis"])
 app.include_router(practice_router, prefix="/api/practice", tags=["practice"])
 app.include_router(review_router, prefix="/api/review", tags=["review"])
+app.include_router(warning_router, prefix="/api/warning", tags=["warning"])
 app.include_router(wrong_question_router, prefix="/api/wrong-questions", tags=["wrong-questions"])
 
 # 静态页托管：/pages/login.html、/pages/exam-v2.html
