@@ -35,7 +35,7 @@ def _baidu_client(words):
     def handler(request: httpx.Request):
         if "/oauth/2.0/token" in str(request.url):
             return httpx.Response(200, json={"access_token": "tk", "expires_in": 2592000})
-        return httpx.Response(200, json={"words_result": [{"words": w} for w in words]})
+        return httpx.Response(200, json={"results": [{"words": {"word": w}} for w in words]})
 
     return httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://aip.baidubce.com")
 

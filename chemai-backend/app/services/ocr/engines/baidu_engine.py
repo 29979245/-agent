@@ -23,9 +23,9 @@ from app.services.ocr.token import BaiduTokenError, get_access_token
 
 DOC_ANALYSIS_URL = "https://aip.baidubce.com/rest/2.0/ocr/v1/doc_analysis"
 
-# 学号：带标签（学号：xxxx）优先，否则兜底裸 8-11 位数字
-_STUDENT_NO_LABEL_RE = re.compile(r"学号\s*[:：]?\s*([0-9]{8,11})")
-_STUDENT_NO_BARE_RE = re.compile(r"(?<!\d)([0-9]{8,11})(?!\d)")
+# 学号：带标签（学号/准考证号/考生号：xxxx）优先，否则兜底裸 8-13 位数字
+_STUDENT_NO_LABEL_RE = re.compile(r"(?:学号|准考证号|考生号)\s*[:：]?\s*([0-9]{8,13})")
+_STUDENT_NO_BARE_RE = re.compile(r"(?<!\d)([0-9]{8,13})(?!\d)")
 _NAME_RE = re.compile(r"姓名\s*[:：]?\s*([一-龥]{2,4})")
 # 逐题答案："1 A" / "1.A" / "1：B" / "2×"
 _ANSWER_RE = re.compile(r"^\s*(\d{1,3})\s*[\.．、:：]?\s*([A-Ha-h]|[√×])\s*$")
@@ -63,8 +63,17 @@ def _extract_answers(lines: list[str]) -> list[dict]:
 
 
 def _parse_words_result(data: dict) -> list[str]:
-    words = data.get("words_result", []) if isinstance(data, dict) else []
-    return [w.get("words", "").strip() for w in words if isinstance(w, dict) and w.get("words")]
+    # doc_analysis 返回 results[i].words.word（不是通用识别的 words_result）
+    results = data.get("results", []) if isinstance(data, dict) else []
+    lines = []
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        words = r.get("words")
+        word = words.get("word") if isinstance(words, dict) else None
+        if word and str(word).strip():
+            lines.append(str(word).strip())
+    return lines
 
 
 class BaiduOCREngine:

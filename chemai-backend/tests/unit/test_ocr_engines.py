@@ -51,7 +51,7 @@ def _baidu_client(words, error_code=None):
             return httpx.Response(200, json={"access_token": "tk", "expires_in": 2592000})
         if error_code:
             return httpx.Response(200, json={"error_code": error_code, "error_msg": "mock error"})
-        return httpx.Response(200, json={"words_result": [{"words": w} for w in words]})
+        return httpx.Response(200, json={"results": [{"words": {"word": w}} for w in words]})
 
     return httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://aip.baidubce.com")
 

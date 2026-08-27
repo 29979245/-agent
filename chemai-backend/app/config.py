@@ -9,9 +9,17 @@
 - Agent：LangGraph create_react_agent（单 Agent v2，v1 多 Agent 保留为回退）
 - OCR：百度教育 OCR 主力 / MinerU PDF / VLM 兜底
 """
+import os
 from pathlib import Path
 
+from app.core.env import load_dotenv_file
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+# 让 .env 中的键（如 JWT_SECRET / BAIDU_OCR_API_KEY / LLM_API_KEY）生效，对齐 .env.example 声明。
+# app/__init__.py 已先行加载；此处兜底再调一次，直接 import app.config 的场景也可靠。
+load_dotenv_file()
 
 
 class Settings:
@@ -30,16 +38,21 @@ class Settings:
     ocr_upload_dir: str = str(BASE_DIR / "data" / "ocr_uploads")
 
     # 调度（design.md D8）：默认关闭，测试避免后台线程；生产 .env 中开启
-    enable_scheduler: bool = False
+    enable_scheduler: bool = os.environ.get("ENABLE_SCHEDULER", "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
     # LLM Provider（.env 中覆盖）
-    llm_provider: str = "deepseek"   # deepseek / qwen / mimo
-    llm_api_key: str = ""
+    llm_provider: str = os.environ.get("LLM_PROVIDER", "deepseek")  # deepseek / qwen / mimo
+    llm_api_key: str = os.environ.get("LLM_API_KEY", "")
 
     # OCR Provider
-    ocr_provider: str = "baidu"      # baidu / mineru
-    baidu_ocr_api_key: str = ""
-    baidu_ocr_secret_key: str = ""
+    ocr_provider: str = os.environ.get("OCR_PROVIDER", "baidu")  # baidu / mineru
+    baidu_ocr_api_key: str = os.environ.get("BAIDU_OCR_API_KEY", "")
+    baidu_ocr_secret_key: str = os.environ.get("BAIDU_OCR_SECRET_KEY", "")
 
 
 settings = Settings()

@@ -349,6 +349,8 @@
       var runTriggered = false;    // 防重复自动批改 flag（后端另有 409 兜底）
       var currentTerminal = false; // 批次已终态（done/discarded/error）→ 停轮询
       var pollTimer = null;
+      var pollErrors = 0;          // 连续轮询失败计数：瞬时错误不终止，连续失败才暂停
+      var uploading = false;       // 上传进行中：拒绝二次拖入/选择，防 in-flight 竞态覆盖批次
       var currentResults = [];
 
       function setSaveUI(disabled) {
@@ -385,6 +387,8 @@
       });
       el('examSelect').addEventListener('change', function () {
         examId = Number(this.value) || null;
+        // 批次识别已完成但此前因未选考试未自动批改 → 选好考试后补触发（loadBatchView 内 maybeAutoGrade 判断）
+        if (currentBatchId && examId && !currentTerminal && !runTriggered) loadBatchView();
       });
 
       // ---- 历史批次下拉 ----
@@ -415,10 +419,11 @@
       var uploadZone = el('uploadZone');
       var fileInput = el('fileInput');
 
-      uploadZone.addEventListener('click', function () { fileInput.click(); });
-      el('selectBtn').addEventListener('click', function (e) { e.stopPropagation(); fileInput.click(); });
+      uploadZone.addEventListener('click', function () { if (!uploading) fileInput.click(); });
+      el('selectBtn').addEventListener('click', function (e) { e.stopPropagation(); if (!uploading) fileInput.click(); });
       fileInput.addEventListener('change', function () {
-        if (fileInput.files && fileInput.files.length) doUpload(fileInput.files);
+        // 不按 files.length>0 拦截：0 文件也走校验，让 validateFiles 给出"未选择文件"提示
+        if (fileInput.files) doUpload(fileInput.files);
         fileInput.value = '';
       });
       uploadZone.addEventListener('dragover', function (e) {
@@ -427,13 +432,16 @@
       uploadZone.addEventListener('dragleave', function () { uploadZone.classList.remove('dragover'); });
       uploadZone.addEventListener('drop', function (e) {
         e.preventDefault(); uploadZone.classList.remove('dragover');
-        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) doUpload(e.dataTransfer.files);
+        if (uploading) { toast('正在上传，请稍候', true); return; }
+        if (e.dataTransfer && e.dataTransfer.files) doUpload(e.dataTransfer.files);
       });
 
       function doUpload(fileList) {
-        var files = Array.prototype.slice.call(fileList);
+        if (uploading) { toast('正在上传，请稍候', true); return; }
+        var files = Array.prototype.slice.call(fileList || []);
         var err = validateFiles(files);
         if (err) { toast(err, true); return; }
+        uploading = true;
         var btn = el('selectBtn');
         btn.disabled = true;
         btn.textContent = '上传中…';
@@ -441,12 +449,14 @@
           currentBatchId = res.batch_id;
           runTriggered = false;
           currentTerminal = false;
+          pollErrors = 0;
           setSaveUI(false);
           toast('批次 ' + res.batch_id + ' 已创建，共 ' + res.count + ' 张答题卡', false);
           loadBatchView();
         }).catch(function (e) {
           toast(e.message, true);
         }).finally(function () {
+          uploading = false;
           btn.disabled = false;
           btn.textContent = '选择文件';
         });
@@ -473,10 +483,19 @@
         pollTick().then(function (cont) { if (cont) startPolling(); });
       }
 
+      // 自动批改触发（一次性 flag 防重复，后端 409 兜底）；已触发/无考试/无批次时返回 false
+      function maybeAutoGrade() {
+        if (runTriggered || !currentBatchId || !examId) return false;
+        runTriggered = true;
+        triggerGrading();
+        return true;
+      }
+
       async function pollTick() {
         if (!currentBatchId) return false;
         try {
           var agg = await ChemAPI.getOcrBatchStatus(currentBatchId);
+          pollErrors = 0;  // 轮询成功即清零连续失败计数
           renderProgressCards(agg);
           var terminal = ['done', 'discarded', 'error'].indexOf(agg.status) !== -1;
           currentTerminal = terminal;
@@ -484,22 +503,24 @@
             if (agg.status === 'done') { loadResults(); setSaveUI(true); }
             return false;
           }
-          // 识别全部完成 → 自动批改（一次性 flag 防重复，后端 409 兜底）
+          // 识别全部完成 → 自动批改
           if (agg.total > 0 && agg.done === agg.total && agg.failed === 0) {
             if (agg.status === 'grading') { loadResults(); return false; }  // 已批改未保存
-            if (!runTriggered) {
-              if (examId) { runTriggered = true; triggerGrading(); return false; }
-              toast('识别已完成，请先在标题栏选择考试以自动批改', true);
-              return false;
-            }
+            if (maybeAutoGrade()) return false;
+            toast('识别已完成，请先在标题栏选择考试以自动批改', true);
             return false;
           }
           // 存在失败任务未重试 → 停止轮询等教师介入（重试后恢复）
           if (agg.done + agg.failed === agg.total) return false;
           return true;  // 仍在识别，继续轮询
         } catch (e) {
-          toast(e.message, true);
-          return false;
+          pollErrors++;
+          if (pollErrors === 1) toast(e.message, true);  // 瞬时错误仅首次提示，避免每 5s 刷屏
+          if (pollErrors >= 3) {
+            toast('连续获取批次状态失败，已暂停轮询。请刷新页面或重新选择批次', true);
+            return false;
+          }
+          return true;  // 瞬时错误不终止轮询，下次 tick 重试
         }
       }
 
