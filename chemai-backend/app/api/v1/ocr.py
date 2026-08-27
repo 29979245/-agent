@@ -9,15 +9,15 @@
 - /api/grading/save              保存结果（分档落库 + 触发诊断）
 - /api/grading/results/{id}      查询批改结果
 """
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.v1.diagnosis import get_diagnosis_client, run_llm_batch
 from app.config import settings
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.permissions import require_permission
-from app.db.models import OCRTask
+from app.db.models import Class, ExamRecord, Grade, OCRTask, UploadSession
 from app.db.session import get_db
 from app.services.diagnosis.llm_diagnosis import DiagnosisLLMClient
 from app.services.ocr import batch
@@ -39,6 +39,33 @@ class GradingSaveRequest(BaseModel):
     exam_id: int | None = None
 
 
+def _tenant_school_id(user) -> int | None:
+    """教师按校隔离，其余角色不限制；约定同 exam.list_classes（仅 role=='teacher' 收紧）。"""
+    return user.school_id if user.role == "teacher" else None
+
+
+def _require_exam_in_teacher_school(db: Session, user, exam_id: int | None) -> None:
+    """教师仅可对本校考试批改/落库：考试不存在 404、跨校考试 403（防跨校写 StudentAnswer）。"""
+    if user.role != "teacher" or exam_id is None:
+        return
+    school_id = (
+        db.query(Grade.school_id)
+        .select_from(ExamRecord)
+        .join(Class, Class.id == ExamRecord.class_id)
+        .join(Grade, Grade.id == Class.grade_id)
+        .filter(ExamRecord.id == exam_id)
+        .scalar()
+    )
+    if school_id is None:
+        raise NotFoundError(detail="考试不存在", error_code="EXAM_NOT_FOUND", suggestion="请检查考试 id")
+    if school_id != user.school_id:
+        raise ForbiddenError(
+            detail="无权操作其他学校的考试",
+            error_code="EXAM_SCOPE_MISMATCH",
+            suggestion="仅可对本校考试触发批改/保存",
+        )
+
+
 # ---------------- /api/ocr ----------------
 
 
@@ -47,11 +74,12 @@ class GradingSaveRequest(BaseModel):
 def create_batch_endpoint(
     request: Request,
     files: list[UploadFile] = File(default=None),
-    exam_id: int | None = Form(default=None),
     db: Session = Depends(get_db),
 ) -> dict:
     """批量上传建批次：保存文件 + 创建 pending OCRTask（空文件列表 400）。"""
-    session, task_ids = batch.create_batch(db, files, settings.ocr_upload_dir, exam_id=exam_id)
+    session, task_ids = batch.create_batch(
+        db, files, settings.ocr_upload_dir, school_id=_tenant_school_id(request.state.user)
+    )
     return {
         "batch_id": session.id,
         "count": len(task_ids),
@@ -66,7 +94,9 @@ def batch_status_endpoint(
     request: Request, batch_id: int, db: Session = Depends(get_db)
 ) -> dict:
     """批次状态聚合：total/done/failed/pending/processing + 任务明细。"""
-    return batch.aggregate_tasks(db, batch.get_session_or_404(db, batch_id))
+    return batch.aggregate_tasks(
+        db, batch.get_session_or_404(db, batch_id, school_id=_tenant_school_id(request.state.user))
+    )
 
 
 @ocr_router.post("/tasks/{task_id}/retry")
@@ -78,6 +108,15 @@ def retry_task_endpoint(
     task = db.get(OCRTask, task_id)
     if task is None:
         raise NotFoundError()
+    school_id = _tenant_school_id(request.state.user)
+    if school_id is not None:
+        session = db.get(UploadSession, task.session_id)
+        if session is None or session.school_id != school_id:
+            raise ForbiddenError(
+                detail="无权访问该任务",
+                error_code="TASK_SCOPE_MISMATCH",
+                suggestion="仅可操作本校答题卡任务",
+            )
     retry_task(db, task)
     db.commit()
     return {"task_id": task.id, "status": task.status.value, "message": "已重置为待处理"}
@@ -86,8 +125,8 @@ def retry_task_endpoint(
 @ocr_router.get("/tasks")
 @require_permission("ocr", "read")
 def task_list_endpoint(request: Request, db: Session = Depends(get_db)) -> dict:
-    """教师任务列表：全批次倒序，含各批次任务明细。"""
-    return {"batches": batch.teacher_batch_list(db)}
+    """教师任务列表：按校隔离、全批次倒序，含各批次任务明细。"""
+    return {"batches": batch.teacher_batch_list(db, school_id=_tenant_school_id(request.state.user))}
 
 
 @ocr_router.get("/services/status")
@@ -114,7 +153,10 @@ def grading_run_endpoint(
     db: Session = Depends(get_db),
 ) -> dict:
     """触发批改：无 done 任务 404；逐题批改写入 task.result['grading']。"""
-    session = batch.get_session_or_404(db, payload.batch_id)
+    session = batch.get_session_or_404(
+        db, payload.batch_id, school_id=_tenant_school_id(request.state.user)
+    )
+    _require_exam_in_teacher_school(db, request.state.user, payload.exam_id)
     return batch.run_grading(
         db,
         session,
@@ -132,10 +174,17 @@ def grading_save_endpoint(
     client: DiagnosisLLMClient = Depends(get_diagnosis_client),
 ) -> dict:
     """保存结果：分档落库（ADR 0003）；模式1 落库成功后触发 run-llm 诊断（仅一次）。"""
-    session = batch.get_session_or_404(db, payload.batch_id)
-    result = batch.save_grading_results(db, session, exam_id=payload.exam_id)
-    if payload.exam_id is not None and result["saved"] > 0:
-        run_llm_batch(db, payload.exam_id, client, request.state.user)
+    session = batch.get_session_or_404(
+        db, payload.batch_id, school_id=_tenant_school_id(request.state.user)
+    )
+    _require_exam_in_teacher_school(db, request.state.user, payload.exam_id)
+    school_id = _tenant_school_id(request.state.user)
+    result = batch.save_grading_results(
+        db, session, exam_id=payload.exam_id, school_id=school_id
+    )
+    run_exam_id = payload.exam_id if payload.exam_id is not None else session.exam_id
+    if run_exam_id is not None and result["saved"] > 0:
+        run_llm_batch(db, run_exam_id, client, request.state.user)
     return result
 
 
@@ -145,4 +194,6 @@ def grading_results_endpoint(
     request: Request, batch_id: int, db: Session = Depends(get_db)
 ) -> dict:
     """查询批改结果：逐任务 grading + 批次 submissions。"""
-    return batch.results_response(db, batch.get_session_or_404(db, batch_id))
+    return batch.results_response(
+        db, batch.get_session_or_404(db, batch_id, school_id=_tenant_school_id(request.state.user))
+    )

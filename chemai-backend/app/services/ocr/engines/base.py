@@ -10,6 +10,10 @@ from typing import Protocol
 # 判定"未识别到有效文本"的最小字符数
 MIN_OCR_TEXT_CHARS = 10
 
+# 未识别到学生身份时的哨兵值（引擎输出与批改结果共用，勿分散硬编码）
+UNKNOWN_STUDENT_NO = "unknown"
+UNKNOWN_STUDENT_NAME = "待识别"
+
 
 @dataclass
 class OCRDocument:

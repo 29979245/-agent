@@ -39,13 +39,15 @@ async def process_task(db, task: OCRTask, *, http=None, llm_client=None) -> None
     if task.status != OCRTaskStatus.pending:
         return
     task.status = OCRTaskStatus.processing
-    db.flush()
+    db.commit()  # 先提交 processing 并释放写锁（避免网络 I/O 期间占用 SQLite 锁/状态不可见）
     try:
         if not task.file_path:
             raise ValueError("任务缺少 file_path")
         result = await extract_document(
             OCRDocument(path=task.file_path), http=http, llm_client=llm_client
         )
+        if result.provider == "none":  # 三引擎全败、无任何输出 → 标记失败供重试（部分结果仍算 done）
+            raise ValueError("所有 OCR 引擎均未能识别")
         data = asdict(result)
         data["file_path"] = task.file_path
         task.result = data

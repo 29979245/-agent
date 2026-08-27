@@ -6,6 +6,7 @@
 查询批改结果、学生越权 403。
 """
 import datetime
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -143,13 +144,13 @@ def _student_account(db, school):
     return acc
 
 
-def _auth(account, role="teacher"):
-    token = create_token(user_id=account.id, role=role, school_id=1)
+def _auth(account, role="teacher", school_id=1):
+    token = create_token(user_id=account.id, role=role, school_id=school_id)
     return {"Authorization": f"Bearer {token}"}
 
 
-def _session(db, status=UploadSessionStatus.uploaded, created_at=None):
-    s = UploadSession(status=status, created_at=created_at)
+def _session(db, status=UploadSessionStatus.uploaded, created_at=None, school_id=1):
+    s = UploadSession(status=status, created_at=created_at, school_id=school_id)
     db.add(s)
     db.flush()
     return s
@@ -162,9 +163,9 @@ def _task(db, session, status=OCRTaskStatus.pending, result=None):
     return t
 
 
-def _exam(db, answers=("A", "B")):
+def _exam(db, answers=("A", "B"), cls=None):
     exam = ExamRecord(
-        class_id=None, name="期中", status=ExamStatus.published,
+        class_id=cls.id if cls else None, name="期中", status=ExamStatus.published,
         exam_type=ExamType.exam, exam_date=_TODAY,
     )
     db.add(exam)
@@ -356,7 +357,8 @@ def test_grading_run_bank_mode_grades_items(ocr_client):
     client, db, _ = ocr_client
     school = _school(db)
     _, acc = _teacher(db, school)
-    exam = _exam(db, answers=("A", "B"))
+    _, cls = _org(db, school)
+    exam = _exam(db, answers=("A", "B"), cls=cls)
     s = _session(db)
     t = _task(db, s, OCRTaskStatus.done, result=_done_result())
     db.commit()
@@ -414,7 +416,7 @@ def test_grading_save_mode1_expands_and_skips_unregistered(ocr_client):
     _, cls = _org(db, school)
     registered = _student(db, cls, "张三", student_no="2023001234")
     _student(db, cls, "李四", student_no="2023005678")
-    exam = _exam(db, answers=("A", "B"))
+    exam = _exam(db, answers=("A", "B"), cls=cls)
     s = _session(db)
     wrong = _done_result()
     wrong["answers"][1]["answer"] = "C"  # 第二题答错（触发诊断 candidate）
@@ -476,3 +478,241 @@ def test_grading_results_query(ocr_client):
     assert body["tasks"][0]["student_name"] == "张三"
     assert body["tasks"][0]["grading"]["source"] == "self"
     assert body["submissions"] == []
+
+
+# ---------------- 8.3 修复回归：越权/幂等/错误体/边界 ----------------
+
+@pytest.mark.parametrize(
+    "method,path,kwargs",
+    [
+        ("post", "/api/ocr/tasks/batch", {"files": []}),
+        ("get", "/api/ocr/tasks/batch/1", {}),
+        ("post", "/api/ocr/tasks/1/retry", {}),
+        ("get", "/api/ocr/tasks", {}),
+        ("get", "/api/ocr/services/status", {}),
+        ("post", "/api/grading/run", {"json": {"batch_id": 1}}),
+        ("post", "/api/grading/save", {"json": {"batch_id": 1}}),
+        ("get", "/api/grading/results/1", {}),
+    ],
+)
+def test_student_forbidden_across_all_ocr_endpoints(ocr_client, method, path, kwargs):
+    client, db, _ = ocr_client
+    school = _school(db)
+    stu = _student_account(db, school)
+    db.commit()
+    r = getattr(client, method)(path, headers=_auth(stu, role="student"), **kwargs)
+    assert r.status_code == 403
+
+
+def test_batch_missing_404(ocr_client):
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    db.commit()
+    r = client.get("/api/ocr/tasks/batch/999", headers=_auth(acc))
+    assert r.status_code == 404
+    assert r.json()["error_code"] == "NOT_FOUND"
+
+
+def test_grading_results_missing_404(ocr_client):
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    db.commit()
+    r = client.get("/api/grading/results/999", headers=_auth(acc))
+    assert r.status_code == 404
+
+
+def test_cross_school_batch_forbidden_403(ocr_client):
+    client, db, _ = ocr_client
+    school_a = _school(db)
+    _, acc_a = _teacher(db, school_a)
+    school_b = _school(db)
+    _, acc_b = _teacher(db, school_b, name="李老师")
+    s = _session(db, school_id=school_a.id)
+    _task(db, s)
+    db.commit()
+    denied = client.get(f"/api/ocr/tasks/batch/{s.id}", headers=_auth(acc_b, school_id=school_b.id))
+    assert denied.status_code == 403
+    assert denied.json()["error_code"] == "BATCH_SCOPE_MISMATCH"
+    ok = client.get(f"/api/ocr/tasks/batch/{s.id}", headers=_auth(acc_a, school_id=school_a.id))
+    assert ok.status_code == 200
+
+
+def test_cross_school_exam_forbidden_403(ocr_client):
+    client, db, _ = ocr_client
+    school_a = _school(db)
+    _, acc_a = _teacher(db, school_a)
+    school_b = _school(db)
+    _, acc_b = _teacher(db, school_b, name="李老师")
+    _, cls_b = _org(db, school_b)
+    exam_b = _exam(db, cls=cls_b)
+    s = _session(db, school_id=school_a.id)
+    _task(db, s, OCRTaskStatus.done, result=_done_result())
+    db.commit()
+    r = client.post(
+        "/api/grading/run",
+        json={"batch_id": s.id, "exam_id": exam_b.id},
+        headers=_auth(acc_a, school_id=school_a.id),
+    )
+    assert r.status_code == 403
+    assert r.json()["error_code"] == "EXAM_SCOPE_MISMATCH"
+
+
+def test_teacher_task_list_scoped_by_school(ocr_client):
+    client, db, _ = ocr_client
+    school_a = _school(db)
+    _, acc_a = _teacher(db, school_a)
+    school_b = _school(db)
+    _, acc_b = _teacher(db, school_b, name="李老师")
+    sa = _session(db, school_id=school_a.id)
+    _task(db, sa)
+    sb = _session(db, school_id=school_b.id)
+    _task(db, sb)
+    db.commit()
+    batches_a = client.get("/api/ocr/tasks", headers=_auth(acc_a, school_id=school_a.id)).json()["batches"]
+    assert [b["batch_id"] for b in batches_a] == [sa.id]
+    batches_b = client.get("/api/ocr/tasks", headers=_auth(acc_b, school_id=school_b.id)).json()["batches"]
+    assert [b["batch_id"] for b in batches_b] == [sb.id]
+
+
+def test_teacher_task_list_empty_when_no_batches(ocr_client):
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    db.commit()
+    assert client.get("/api/ocr/tasks", headers=_auth(acc)).json()["batches"] == []
+
+
+def test_grading_run_after_save_conflict_409(ocr_client):
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    s = _session(db)
+    _task(db, s, OCRTaskStatus.done, result=_done_result())
+    db.commit()
+    assert client.post("/api/grading/run", json={"batch_id": s.id}, headers=_auth(acc)).status_code == 200
+    assert client.post("/api/grading/save", json={"batch_id": s.id}, headers=_auth(acc)).status_code == 200
+    r = client.post("/api/grading/run", json={"batch_id": s.id}, headers=_auth(acc))
+    assert r.status_code == 409
+    assert r.json()["error_code"] == "BATCH_ALREADY_SAVED"
+
+
+def test_grading_double_save_conflict_409(ocr_client):
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    s = _session(db)
+    _task(db, s, OCRTaskStatus.done, result={"answers": [{"question_no": 1, "answer": "H2O"}]})
+    db.commit()
+    client.post("/api/grading/run", json={"batch_id": s.id}, headers=_auth(acc))
+    first = client.post("/api/grading/save", json={"batch_id": s.id}, headers=_auth(acc))
+    assert first.status_code == 200
+    second = client.post("/api/grading/save", json={"batch_id": s.id}, headers=_auth(acc))
+    assert second.status_code == 409
+    assert second.json()["error_code"] == "BATCH_ALREADY_SAVED"
+    assert db.query(StudentSubmission).count() == 1  # 幂等守卫，未重复落库
+
+
+def test_grading_save_before_run_400(ocr_client):
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    s = _session(db)
+    _task(db, s, OCRTaskStatus.done, result=_done_result())
+    db.commit()
+    r = client.post("/api/grading/save", json={"batch_id": s.id}, headers=_auth(acc))
+    assert r.status_code == 400
+    assert r.json()["error_code"] == "OCR_INCOMPLETE_GRADING"
+    assert db.query(StudentSubmission).count() == 0
+    db.refresh(s)
+    assert s.status == UploadSessionStatus.uploaded  # 未推进到 done
+
+
+def test_grading_save_incomplete_grading_400(ocr_client):
+    """重试后的 done 任务缺 grading → 阻止保存，避免静默漏存。"""
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    s = _session(db)
+    _task(db, s, OCRTaskStatus.done, result={**_done_result(), "grading": {"source": "bank", "items": []}})
+    _task(db, s, OCRTaskStatus.done, result=_done_result())  # 重试后 done 但无 grading
+    db.commit()
+    r = client.post("/api/grading/save", json={"batch_id": s.id}, headers=_auth(acc))
+    assert r.status_code == 400
+    assert r.json()["error_code"] == "OCR_INCOMPLETE_GRADING"
+
+
+def test_grading_run_exam_binding_mismatch_409(ocr_client):
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    _, cls = _org(db, school)
+    exam_a = _exam(db, answers=("A",), cls=cls)
+    exam_b = _exam(db, answers=("B",), cls=cls)
+    s = _session(db)
+    _task(db, s, OCRTaskStatus.done, result=_done_result())
+    db.commit()
+    assert client.post(
+        "/api/grading/run", json={"batch_id": s.id, "exam_id": exam_a.id}, headers=_auth(acc)
+    ).status_code == 200
+    r = client.post(
+        "/api/grading/run", json={"batch_id": s.id, "exam_id": exam_b.id}, headers=_auth(acc)
+    )
+    assert r.status_code == 409
+    assert r.json()["error_code"] == "EXAM_BINDING_MISMATCH"
+
+
+def test_grading_save_exam_binding_mismatch_409(ocr_client):
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    _, cls = _org(db, school)
+    exam_a = _exam(db, answers=("A",), cls=cls)
+    exam_b = _exam(db, answers=("B",), cls=cls)
+    s = _session(db)
+    _task(db, s, OCRTaskStatus.done, result=_done_result())
+    db.commit()
+    client.post(
+        "/api/grading/run", json={"batch_id": s.id, "exam_id": exam_a.id}, headers=_auth(acc)
+    )
+    r = client.post(
+        "/api/grading/save", json={"batch_id": s.id, "exam_id": exam_b.id}, headers=_auth(acc)
+    )
+    assert r.status_code == 409
+    assert r.json()["error_code"] == "EXAM_BINDING_MISMATCH"
+
+
+def test_batch_upload_mixed_rollback_removes_files(ocr_client):
+    """批量中任一文件校验失败：回滚批次并清理已落盘文件，无孤儿文件。"""
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    db.commit()
+    upload_dir = settings.ocr_upload_dir
+    r = client.post(
+        "/api/ocr/tasks/batch",
+        files=[
+            ("files", ("good.png", b"png-data", "image/png")),
+            ("files", ("bad.txt", b"text", "text/plain")),
+        ],
+        headers=_auth(acc),
+    )
+    assert r.status_code == 415
+    assert db.query(UploadSession).count() == 0
+    assert list(Path(upload_dir).iterdir()) == []
+
+
+def test_error_body_has_unified_shape(ocr_client):
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    db.commit()
+    r = client.post(
+        "/api/ocr/tasks/batch",
+        files=[("files", ("a.txt", b"x", "text/plain"))],
+        headers=_auth(acc),
+    )
+    assert r.status_code == 415
+    assert r.json()["error_code"] == "UNSUPPORTED_FILE_FORMAT"
+    assert "suggestion" in r.json()
