@@ -117,9 +117,9 @@ def test_wrong_list_excludes_mastered(db_session, env):
 
 def test_variants_same_kp_diff_excludes_original(tmp_path, db_session, env):
     _load_bank(tmp_path, '{"questions": ['
-               '{"id": "q1", "content": "真题A", "answer": "B", '
+               '{"id": "q1", "content": "真题A", "answer": "B", "options": ["A", "B", "C", "D"], '
                '"knowledge_points": ["氧化还原反应"], "difficulty": "easy"},'
-               '{"id": "q2", "content": "真题B", "answer": "C", '
+               '{"id": "q2", "content": "真题B", "answer": "C", "options": ["A", "B", "C", "D"], '
                '"knowledge_points": ["氧化还原反应"], "difficulty": "easy"}'
                "]}")
     stu = _student(db_session, env)

@@ -247,6 +247,25 @@ def test_sample_questions_excludes_and_shortfall(tmp_path):
     assert shortfall == 2  # 仅命中 1 道
 
 
+def test_sample_questions_choice_only_filters_non_option(tmp_path):
+    """choice_only=True 只抽带选项的选择题（学生端答题按选项作答）。"""
+    from app.services.question.historical import reload_bank
+    p = tmp_path / "全国卷" / "2024"
+    p.mkdir(parents=True, exist_ok=True)
+    (p / "真题.json").write_text(
+        '{"questions": ['
+        '{"id": "q1", "content": "A", "answer": "B", "options": ["A", "B", "C", "D"], "knowledge_points": ["氧化还原反应"], "difficulty": "easy"},'
+        '{"id": "q2", "content": "B", "answer": "C", "knowledge_points": ["氧化还原反应"], "difficulty": "easy"}'
+        "]}",
+        encoding="utf-8",
+    )
+    bank = reload_bank(tmp_path)
+    choice_only, _ = sample_questions(bank, ["氧化还原反应"], "easy", count=5, choice_only=True)
+    assert [ref for ref, _ in choice_only] == ["全国卷/2024/真题#q1"]  # 跳过无选项的 q2
+    mixed, _ = sample_questions(bank, ["氧化还原反应"], "easy", count=5, choice_only=False)
+    assert len(mixed) == 2  # 默认包含非选择题
+
+
 # ---- 3.1 艾宾浩斯间隔映射 ----
 
 def test_review_interval_mapping():

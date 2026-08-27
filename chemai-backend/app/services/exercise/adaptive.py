@@ -85,7 +85,7 @@ class AdaptivePracticeService:
         plan = self.plan_for(student)
         selected, shortfall = sample_questions(
             self.bank, plan["knowledge_points"], plan["difficulty"],
-            count=count, exclude_ref_ids=exclude_ref_ids,
+            count=count, exclude_ref_ids=exclude_ref_ids, choice_only=True,
         )
         exam = ExamRecord(
             class_id=None,

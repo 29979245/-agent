@@ -55,9 +55,9 @@ def _load_bank(tmp_path):
     p = tmp_path / "全国卷" / "2024"
     p.mkdir(parents=True, exist_ok=True)
     (p / "真题.json").write_text('{"questions": ['
-        '{"id": "q1", "content": "氧化还原A", "answer": "B", "knowledge_points": ["氧化还原反应"], "difficulty": "easy"},'
-        '{"id": "q2", "content": "平衡A", "answer": "C", "knowledge_points": ["化学平衡"], "difficulty": "easy"},'
-        '{"id": "q3", "content": "离子A", "answer": "D", "knowledge_points": ["离子反应"], "difficulty": "easy"}'
+        '{"id": "q1", "content": "氧化还原A", "answer": "B", "options": ["A", "B", "C", "D"], "knowledge_points": ["氧化还原反应"], "difficulty": "easy"},'
+        '{"id": "q2", "content": "平衡A", "answer": "C", "options": ["A", "B", "C", "D"], "knowledge_points": ["化学平衡"], "difficulty": "easy"},'
+        '{"id": "q3", "content": "离子A", "answer": "D", "options": ["A", "B", "C", "D"], "knowledge_points": ["离子反应"], "difficulty": "easy"}'
         "]}", encoding="utf-8")
     from app.services.question.historical import reload_bank
     return reload_bank(tmp_path)

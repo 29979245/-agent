@@ -95,7 +95,8 @@ class WrongQuestionTrainer:
             if hq.content == original.content
         ]
         selected, shortfall = sample_questions(
-            self.bank, kps, diff, count=count, exclude_ref_ids=tuple(exclude)
+            self.bank, kps, diff, count=count, exclude_ref_ids=tuple(exclude),
+            choice_only=True,
         )
         exam = ExamRecord(
             class_id=None,

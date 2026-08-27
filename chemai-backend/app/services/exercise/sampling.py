@@ -26,9 +26,12 @@ def sample_questions(
     difficulty: str,
     count: int = 3,
     exclude_ref_ids: tuple[str, ...] = (),
+    choice_only: bool = False,
 ) -> tuple[list[tuple[str, HistoricalQuestion]], int]:
     """从真题库抽样 count 道：优先同难度，不足用同知识点其他难度补足。
 
+    choice_only=True 时仅抽样带选项的选择题——学生答题界面按选项作答，
+    开放题（无 options）抽入会导致生成不可作答的练习。
     返回 ([(ref_id, HistoricalQuestion)], shortfall)。shortfall = count - 实际数量。
     """
     exclude = set(exclude_ref_ids)
@@ -40,6 +43,8 @@ def sample_questions(
             if ref in exclude:
                 continue
             if not _kp_hit(hq, knowledge_points):
+                continue
+            if choice_only and not hq.options:
                 continue
             (exact if hq.difficulty == difficulty else fallback).append((ref, hq))
     exact.sort(key=lambda item: item[0])
