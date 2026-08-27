@@ -40,6 +40,6 @@
 
 ## 8. 诊断接线与收尾
 
-- [ ] 8.1 保存结果成功后触发既有 `run-llm` 批量诊断（按 exam_id），验证 mock 下保存后诊断被调用且仅一次
+- [x] 8.1 保存结果成功后触发既有 `run-llm` 批量诊断（按 exam_id），验证 mock 下保存后诊断被调用且仅一次
 - [ ] 8.2 全量 `pytest tests/ --tb=short -x` 通过，验证无回归
 - [ ] 8.3 运行 `/code-review` 后端审查并修复问题，验证审查通过、`git log` 按 Conventional Commits 原子提交
