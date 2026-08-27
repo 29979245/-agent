@@ -82,6 +82,19 @@ h1, h2, h3, .serif { font-family: "Cormorant Garamond", Georgia, "Songti SC", "S
   margin-right: 6px;
 }
 .topbar-right a { color: #fff; text-decoration: none; padding: 6px 4px; }
+.topbar-action {
+  background: var(--green);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.topbar-action:active { opacity: .85; }
+.topbar-action:disabled { opacity: .6; cursor: not-allowed; }
 
 /* ===== Section tabs (待完成/已完成) ===== */
 .tabs {

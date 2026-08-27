@@ -42,21 +42,27 @@ class DailyPracticeScheduler:
 
     def create_daily_practice(
         self, student: Student, now: Optional[datetime.datetime] = None,
+        skip_same_day_check: bool = False,
     ) -> dict | None:
-        """生成一份每日练习；同生同天已存在每日练习则跳过（返回 None）。"""
+        """生成一份每日练习；同生同天已存在每日练习则跳过（返回 None）。
+
+        skip_same_day_check=True 供学生端「生成新练习」按需加练：忽略同天去重，
+        允许当天再生成一份（学生显式请求，不受调度器一次性限制，spec daily-practice c1 管调度批次）。
+        """
         today = (now or datetime.datetime.utcnow()).date()
         # 只按 mode=="daily" 去重：同一天训练/变式记录不阻断每日布置（spec daily-practice c1）
-        existing = (
-            self.db.query(ExamRecord)
-            .filter(
-                ExamRecord.student_id == student.id,
-                ExamRecord.exam_type == ExamType.practice,
-                ExamRecord.exam_date == today,
+        if not skip_same_day_check:
+            existing = (
+                self.db.query(ExamRecord)
+                .filter(
+                    ExamRecord.student_id == student.id,
+                    ExamRecord.exam_type == ExamType.practice,
+                    ExamRecord.exam_date == today,
+                )
+                .all()
             )
-            .all()
-        )
-        if any((e.question_stats or {}).get("mode") == "daily" for e in existing):
-            return None
+            if any((e.question_stats or {}).get("mode") == "daily" for e in existing):
+                return None
         # 目标解析收敛：复用 adaptive.plan_for（ZPD + 障碍 + 薄弱点补齐），避免分叉
         plan = AdaptivePracticeService(self.db, self.bank).plan_for(student)
         barrier = plan["barrier"]
@@ -64,7 +70,7 @@ class DailyPracticeScheduler:
         difficulty = plan["difficulty"]
         kps = plan["knowledge_points"]
         selected, shortfall = sample_questions(
-            self.bank, kps, difficulty, count=DAILY_COUNT
+            self.bank, kps, difficulty, count=DAILY_COUNT, choice_only=True
         )
         exam = ExamRecord(
             class_id=None,

@@ -114,6 +114,7 @@
 
     let resp;
     try {
+      opts.body = formData;
       resp = await fetch(baseURL + path, opts);
     } catch (err) {
       throw new ApiError('无法连接后端，请确认后端已启动（' + baseURL + '）', 0);
@@ -345,6 +346,9 @@
     // ---- 学生练习（/api/practice）----
     studentPracticeTasks(studentId) {
       return request('/api/practice/student/' + studentId + '/tasks');
+    },
+    generatePractice() {
+      return request('/api/practice/generate', { method: 'POST' });
     },
     studentPracticeSubmit(practiceId, answers) {
       return request('/api/practice/submit', {

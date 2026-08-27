@@ -14,6 +14,7 @@ from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.permissions import require_permission
 from app.db.models import Account, ExamRecord, ExamType, Question, Student, StudentAnswer
 from app.db.session import SessionLocal, get_db
+from app.services.exercise.daily import DailyPracticeScheduler
 from app.services.exercise.side_effects import get_diagnosis_client, run_submit_side_effects
 from app.services.question.serializers import split_knowledge_points
 
@@ -106,6 +107,39 @@ def practice_tasks(request: Request, uid: int, db: Session = Depends(get_db)) ->
         "pending_count": sum(1 for t in tasks if t["status"] == "pending"),
         "completed_count": sum(1 for t in tasks if t["status"] == "completed"),
         "tasks": tasks,
+    }
+
+
+# ---------------- 5.1b 按需生成新练习 ----------------
+
+@practice_router.post("/generate")
+@require_permission("practice", "create")
+def generate_practice(request: Request, db: Session = Depends(get_db)) -> dict:
+    """学生端「生成新练习」：按需生成一份新的每日练习（跳过同天去重）。
+
+    解决每日调度关闭或当日练习已完成后的空窗：学生显式请求即可再生成，
+    避免练习页永久只有已完成任务无法继续答题。
+    """
+    student_id = _role_id(db, request.state.user)
+    student = db.get(Student, student_id)
+    if student is None:
+        raise NotFoundError(detail="学生不存在", error_code="STUDENT_NOT_FOUND")
+    result = DailyPracticeScheduler(db).create_daily_practice(
+        student, skip_same_day_check=True
+    )
+    if result is None or result["question_count"] == 0:
+        db.rollback()
+        raise NotFoundError(
+            detail="暂无可生成的题目，请稍后再试", error_code="PRACTICE_GENERATE_EMPTY"
+        )
+    exam = db.get(ExamRecord, result["exam_id"])
+    db.commit()  # create_daily_practice 只 flush，get_db 关闭会话时未提交的变更会被回滚
+    return {
+        "practice_id": exam.id,
+        "title": exam.name,
+        "question_count": result["question_count"],
+        "difficulty": result["difficulty"],
+        "status": "pending",
     }
 
 
