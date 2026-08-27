@@ -26,6 +26,9 @@ class Settings:
     exam_bank_dir: str = str(BASE_DIR / "data" / "exam_bank")
     chroma_dir: str = str(BASE_DIR / "data" / "chroma")
 
+    # OCR 上传文件落盘目录（批量上传保存待识别文件）
+    ocr_upload_dir: str = str(BASE_DIR / "data" / "ocr_uploads")
+
     # 调度（design.md D8）：默认关闭，测试避免后台线程；生产 .env 中开启
     enable_scheduler: bool = False
 

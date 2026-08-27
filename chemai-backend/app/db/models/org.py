@@ -100,6 +100,7 @@ class Student(Base):
         ForeignKey("class.id", ondelete="RESTRICT"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(50), nullable=False)
+    student_no: Mapped[str] = mapped_column(String(20), default="")  # 学号（OCR 批改模式1 按学号匹配学生）
     barrier_profile: Mapped[dict] = mapped_column(
         MutableDict.as_mutable(JSON), nullable=False, default=dict
     )

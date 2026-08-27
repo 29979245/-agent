@@ -123,8 +123,10 @@ def test_delete_session_cascades_tasks_and_submissions(db_session):
     assert db_session.query(StudentSubmission).count() == 0
 
 
-def test_submission_requires_exam(db_session):
+def test_submission_allows_no_exam(db_session):
+    """模式2/3 无考试提交：exam_id 可空（ADR 0003 只落 StudentSubmission）。"""
     s = _session(db_session)
-    with pytest.raises(IntegrityError):
-        db_session.add(StudentSubmission(session_id=s.id))
-        db_session.flush()
+    db_session.add(StudentSubmission(session_id=s.id))
+    db_session.commit()
+    got = db_session.query(StudentSubmission).filter_by(session_id=s.id).one()
+    assert got.exam_id is None
