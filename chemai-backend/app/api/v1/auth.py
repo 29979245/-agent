@@ -1,25 +1,28 @@
-"""认证路由（7.4-7.5）：统一账户登录 / 令牌刷新 / 家长独立登录。
+"""认证路由（7.4-7.5）：统一账户登录 / 令牌刷新 / 家长独立登录 / 修改密码。
 
-- POST /api/auth/login       username + password → access + refresh
-- POST /api/auth/refresh     refresh_token → 新 access + refresh
-- POST /api/parent/login     phone + bind_code → parent 令牌（无密码路径）
+- POST /api/auth/login           username + password → access + refresh
+- POST /api/auth/refresh         refresh_token → 新 access + refresh
+- POST /api/auth/change-password 校验旧密码后更新自身密码（account 资源）
+- POST /api/parent/login         phone + bind_code → parent 令牌（无密码路径）
 """
 import logging
 import os
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 auth_logger = logging.getLogger("chemai.auth")
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import (
     AccountPendingError,
     AccountRejectedError,
     BindCodeInvalidError,
+    BusinessRuleViolationError,
     TokenExpiredError as TokenExpiredAPIError,
     UnauthorizedError,
 )
+from app.core.permissions import require_permission
 from app.core.security import (
     REFRESH_TOKEN_TTL,
     InvalidTokenError,
@@ -56,6 +59,11 @@ class RefreshRequest(BaseModel):
 class ParentLoginRequest(BaseModel):
     phone: str
     bind_code: str
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str = Field(..., min_length=6)
 
 
 def _resolve_school_id(db: Session, account: Account) -> int | None:
@@ -146,6 +154,20 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
         extra={"event": "login_success", "username": payload.username, "role": account.role.value},
     )
     return _issue_tokens(account, school_id, name)
+
+
+@auth_router.post("/change-password")
+@require_permission("account", "update")
+def change_password(
+    request: Request, payload: ChangePasswordRequest, db: Session = Depends(get_db)
+) -> dict:
+    """修改自身密码：校验旧密码后以不可逆散列更新，任何矩阵角色可改自身。"""
+    account = db.get(Account, request.state.user.user_id)
+    if account is None or not verify_password(payload.old_password, account.password_hash):
+        raise BusinessRuleViolationError(detail="旧密码不正确", error_code="BUSINESS_RULE_VIOLATION")
+    account.password_hash = hash_password(payload.new_password)
+    db.commit()
+    return {"detail": "密码修改成功", "success": True}
 
 
 @auth_router.post("/refresh")

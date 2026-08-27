@@ -56,8 +56,9 @@ def test_matrix_deny_student_exam_create():
 def test_subject_lead_read_only():
     for res in RESOURCES:
         assert has_permission("subject_lead", res, "read") is True
+        # account 例外：各矩阵角色可改自身密码
         for op in ("create", "update", "delete"):
-            assert has_permission("subject_lead", res, op) is False
+            assert has_permission("subject_lead", res, op) is False or res == "account"
 
 
 def test_parent_default_deny():
@@ -180,6 +181,27 @@ def test_checker_allows_teacher_warning_update():
 def test_checker_denies_student_warning_read():
     with pytest.raises(ForbiddenError):
         permission_checker.check(_token(role="student"), "warning", "read")
+
+
+# ---- report / account 资源矩阵（student-supplement-apis）----
+
+def test_report_matrix_admin_full_subject_lead_read():
+    assert set(ROLE_PERMISSIONS["admin"]["report"]) == set(OPERATIONS)
+    assert ROLE_PERMISSIONS["subject_lead"]["report"] == {"read"}
+    assert has_permission("teacher", "report", "read") is True
+    assert has_permission("teacher", "report", "create") is False
+
+
+def test_report_matrix_student_read_update():
+    assert has_permission("student", "report", "read") is True
+    assert has_permission("student", "report", "update") is True
+    assert has_permission("student", "report", "create") is False
+    assert has_permission("student", "report", "delete") is False
+
+
+def test_account_matrix_all_roles_update():
+    for role in MATRIX_ROLES:
+        assert has_permission(role, "account", "update") is True
 
 
 # ---- 8.3 require_permission 装饰器 ----

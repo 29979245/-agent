@@ -20,7 +20,9 @@ from app.api.v1.exam import classes_router, exam_router
 from app.api.v1.exam_bank import exam_bank_router
 from app.api.v1.panel import panel_router
 from app.api.v1.practice import practice_router
+from app.api.v1.report import report_router
 from app.api.v1.review import review_router
+from app.api.v1.student import student_router
 from app.api.v1.warning import warning_router
 from app.api.v1.wrong_question import wrong_question_router
 from app.config import settings
@@ -129,6 +131,8 @@ app.include_router(practice_router, prefix="/api/practice", tags=["practice"])
 app.include_router(review_router, prefix="/api/review", tags=["review"])
 app.include_router(warning_router, prefix="/api/warning", tags=["warning"])
 app.include_router(wrong_question_router, prefix="/api/wrong-questions", tags=["wrong-questions"])
+app.include_router(report_router, prefix="/api/report", tags=["report"])
+app.include_router(student_router, prefix="/api/student", tags=["student"])
 
 # 静态页托管：/pages/login.html、/pages/exam-v2.html
 app.mount("/pages", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="pages")

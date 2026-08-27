@@ -55,6 +55,13 @@ class BindCodeInvalidError(APIException):
         super().__init__(403, detail, error_code, suggestion)
 
 
+class BusinessRuleViolationError(APIException):
+    """400：业务规则冲突——旧密码不正确等输入态校验失败。"""
+
+    def __init__(self, detail="业务规则冲突", error_code="BUSINESS_RULE_VIOLATION", suggestion="请核对输入后重试"):
+        super().__init__(400, detail, error_code, suggestion)
+
+
 class NotFoundError(APIException):
     """404：资源不存在。"""
 
