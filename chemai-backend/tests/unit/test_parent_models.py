@@ -78,9 +78,9 @@ def test_binding_unique_parent_student(db_session):
 
 def test_parent_notification_crud(db_session):
     p = _parent(db_session)
-    n = ParentNotification(parent_id=p.id, notification_type=NotificationType.warning, title="学情预警")
+    n = ParentNotification(parent_id=p.id, notification_type=NotificationType.score_alert, title="学情预警")
     db_session.add(n)
     db_session.commit()
     got = db_session.get(ParentNotification, n.id)
-    assert got.notification_type == NotificationType.warning
+    assert got.notification_type == NotificationType.score_alert
     assert got.is_read is False

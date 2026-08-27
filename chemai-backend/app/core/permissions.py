@@ -31,6 +31,7 @@ RESOURCES = [
     "warning",
     "report",
     "account",
+    "integration",
 ]
 OPERATIONS = ["create", "read", "update", "delete"]
 MATRIX_ROLES = ["admin", "dept_admin", "subject_lead", "teacher", "student"]

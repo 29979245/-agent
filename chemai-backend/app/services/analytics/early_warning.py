@@ -31,7 +31,9 @@ from app.db.models.enums import (
     WarningLevel,
     WarningStatus,
     WarningType,
+    WebhookEventType,
 )
+from app.services.integration.webhook_service import emit_event
 
 NO_LOGIN_DAYS = 3
 SCORE_DROP_THRESHOLD = 0.1
@@ -193,6 +195,16 @@ class EarlyWarningService:
             created += 1
             by_type[wtype.value] = by_type.get(wtype.value, 0) + 1
             notified += self._send_warning_notifications(warning, student)
+            # warning.triggered 事件（埋点吞异常，不阻断预警主流程）
+            emit_event(
+                self.db,
+                WebhookEventType.warning_triggered,
+                {
+                    "warning_type": wtype.value,
+                    "title": warning.title,
+                    "student_id": student.id,
+                },
+            )
         return {"created": created, "by_type": by_type, "notified": notified}
 
     def _detect_all(self, student: Student, now: datetime.datetime) -> list[tuple]:
@@ -270,7 +282,7 @@ class EarlyWarningService:
             self.db.add(
                 ParentNotification(
                     parent_id=b.parent_id,
-                    notification_type=NotificationType.warning,
+                    notification_type=NotificationType.score_alert,
                     title=warning.title,
                     content=warning.content,
                 )

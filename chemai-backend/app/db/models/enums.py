@@ -130,11 +130,13 @@ class ParentBindingRelation(str, enum.Enum):
 
 
 class NotificationType(str, enum.Enum):
-    """家长通知类型：学习报告 / 预警提醒 / 教师消息。"""
+    """家长通知类型 5 类（文档 33 §9）：周报 / 成绩预警 / 学习计划 / 提醒 / 每日练习。"""
 
-    report = "report"
-    warning = "warning"
-    message = "message"
+    weekly_report = "weekly_report"
+    score_alert = "score_alert"
+    learning_plan = "learning_plan"
+    reminder = "reminder"
+    daily_report = "daily_report"
 
 
 class WarningType(str, enum.Enum):
@@ -159,6 +161,18 @@ class WarningStatus(str, enum.Enum):
     pending = "pending"
     processed = "processed"
     ignored = "ignored"
+
+
+class WebhookEventType(str, enum.Enum):
+    """Webhook 事件类型 7 种（文档 33 §10.3）。"""
+
+    practice_assigned = "practice.assigned"
+    practice_completed = "practice.completed"
+    exam_created = "exam.created"
+    exam_graded = "exam.graded"
+    warning_triggered = "warning.triggered"
+    student_login = "student.login"
+    review_due = "review.due"
 
 
 class UploadSessionStatus(str, enum.Enum):

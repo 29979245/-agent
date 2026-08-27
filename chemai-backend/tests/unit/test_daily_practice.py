@@ -92,7 +92,8 @@ def test_create_daily_concept_default(tmp_path, db_session, env):
     assert exam.exam_type == ExamType.practice
     assert exam.question_stats["mode"] == "daily"
     deadline = exam.question_stats["deadline"]
-    assert deadline == (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+    # 实现按 UTC 日期计算 deadline（daily.py:52），断言与之一致，避免本地/UTC 时区竞态
+    assert deadline == (datetime.datetime.utcnow().date() + datetime.timedelta(days=1)).isoformat()
     assert result["question_count"] == 3
 
 
@@ -146,7 +147,7 @@ def test_notify_parent_bound(tmp_path, db_session, env):
     assert svc.notify_parent(stu, exam) == 1
     note = db_session.query(ParentNotification).first()
     assert note.parent_id == parent.id
-    assert note.notification_type == NotificationType.message
+    assert note.notification_type == NotificationType.daily_report
     assert "张三" in note.content
 
 

@@ -23,10 +23,12 @@ from app.db.models.enums import (
     WarningLevel,
     WarningStatus,
     WarningType,
+    WebhookEventType,
 )
 from app.db.models.account import Account
 from app.db.models.diagnosis import BarrierConfig, BarrierOverrideLog
 from app.db.models.exam import ExamRecord, Question, QuestionSet, QuestionSetItem, StudentAnswer
+from app.db.models.integration import IntegrationConfig, WebhookRegistration
 from app.db.models.ocr import OCRTask, StudentSubmission, UploadSession
 from app.db.models.org import Class, Grade, School, Student, Teacher
 from app.db.models.parent import Parent, ParentNotification, StudentParentBinding
@@ -61,6 +63,9 @@ __all__ = [
     "StudentSubmission",
     # 预警链
     "WarningLog",
+    # 集成链
+    "WebhookRegistration",
+    "IntegrationConfig",
     # 枚举
     "AccountRole",
     "AuditStatus",
@@ -80,4 +85,5 @@ __all__ = [
     "WarningLevel",
     "WarningStatus",
     "WarningType",
+    "WebhookEventType",
 ]

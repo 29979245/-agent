@@ -128,7 +128,7 @@ def test_notify_active_binding_creates_notification(db_session):
     assert result["notified"] == 1
     notif = db_session.query(ParentNotification).one()
     assert notif.parent_id == parent.id
-    assert notif.notification_type == NotificationType.warning
+    assert notif.notification_type == NotificationType.score_alert
     warning = db_session.query(WarningLog).one()
     assert warning.notified_parent is True
     assert warning.notified_teacher is True

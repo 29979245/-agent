@@ -20,10 +20,11 @@ from app.db.models import (
     Student,
     StudentParentBinding,
 )
-from app.db.models.enums import NotificationType, ParentBindingStatus
+from app.db.models.enums import NotificationType, ParentBindingStatus, WebhookEventType
 from app.services.exercise.adaptive import AdaptivePracticeService, copy_historical_question
 from app.services.exercise.sampling import sample_questions
 from app.services.exercise.spaced_repetition import SpacedRepetitionEngine
+from app.services.integration.webhook_service import emit_event
 from app.services.question.historical import HistoricalBank, get_bank
 
 DAILY_NAME = "每日练习"
@@ -92,6 +93,12 @@ class DailyPracticeScheduler:
         for ref, hq in selected:
             self.db.add(copy_historical_question(self.db, hq, exam.id, difficulty))
         self.db.flush()
+        # practice.assigned 事件（埋点吞异常，不阻断布置主流程）
+        emit_event(
+            self.db,
+            WebhookEventType.practice_assigned,
+            {"practice_name": DAILY_NAME, "student_id": student.id, "exam_id": exam.id},
+        )
         return {
             "student_id": student.id,
             "exam_id": exam.id,
@@ -117,7 +124,7 @@ class DailyPracticeScheduler:
             return 0
         self.db.add(ParentNotification(
             parent_id=binding.parent_id,
-            notification_type=NotificationType.message,
+            notification_type=NotificationType.daily_report,
             title="今日练习已布置",
             content=f"{student.name} 的每日练习《{exam.name}》已布置，请关注完成情况。",
         ))

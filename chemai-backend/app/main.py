@@ -19,8 +19,10 @@ from app.api.v1.auth import auth_router, parent_router
 from app.api.v1.diagnosis import diagnosis_router
 from app.api.v1.exam import classes_router, exam_router
 from app.api.v1.exam_bank import exam_bank_router
+from app.api.v1.integration import integration_router
 from app.api.v1.ocr import grading_router, ocr_router
 from app.api.v1.panel import panel_router
+from app.api.v1.parent import parent_router as parent_portal_router
 from app.api.v1.practice import practice_router
 from app.api.v1.report import report_router
 from app.api.v1.review import review_router
@@ -93,6 +95,10 @@ def _api_exception_handler(request: Request, exc: APIException) -> JSONResponse:
 
 @app.exception_handler(404)
 def _not_found_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    # APIException 携带自定义 error_code（如 NOTIFICATION_NOT_FOUND）时保留之；
+    # 纯路由未匹配的 404（detail 为字符串）返回通用 NOT_FOUND。
+    if isinstance(exc.detail, dict) and exc.detail.get("error_code"):
+        return JSONResponse(status_code=404, content=exc.detail)
     return JSONResponse(
         status_code=404,
         content={"detail": "资源不存在", "error_code": "NOT_FOUND", "suggestion": ""},
@@ -130,6 +136,7 @@ app.add_middleware(
 
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(parent_router, prefix="/api/parent", tags=["parent"])
+app.include_router(parent_portal_router, prefix="/api/parent", tags=["parent"])
 app.include_router(audit_router, prefix="/api/question", tags=["question"])
 app.include_router(exam_bank_router, prefix="/api/exam-bank", tags=["exam-bank"])
 app.include_router(exam_router, prefix="/api/exam", tags=["exam"])
@@ -142,6 +149,7 @@ app.include_router(warning_router, prefix="/api/warning", tags=["warning"])
 app.include_router(wrong_question_router, prefix="/api/wrong-questions", tags=["wrong-questions"])
 app.include_router(ocr_router, prefix="/api/ocr", tags=["ocr"])
 app.include_router(grading_router, prefix="/api/grading", tags=["grading"])
+app.include_router(integration_router, prefix="/api/integration", tags=["integration"])
 app.include_router(report_router, prefix="/api/report", tags=["report"])
 app.include_router(student_router, prefix="/api/student", tags=["student"])
 
