@@ -28,8 +28,8 @@
 
 ## 6. OCRTask 调度与重试
 
-- [ ] 6.1 实现 `scheduler.py`：APScheduler interval 5s 轮询 `pending → processing → done/failed`（成功置 progress 100、失败记 error），验证 `tests/unit/test_ocr_scheduler.py` 模拟轮询周期覆盖状态流转
-- [ ] 6.2 实现重试：`failed → pending` + 清空错误信息与识别结果，验证重试幂等（重复重试不产生副作用）
+- [x] 6.1 实现 `scheduler.py`：APScheduler interval 5s 轮询 `pending → processing → done/failed`（成功置 progress 100、失败记 error），验证 `tests/unit/test_ocr_scheduler.py` 模拟轮询周期覆盖状态流转
+- [x] 6.2 实现重试：`failed → pending` + 清空错误信息与识别结果，验证重试幂等（重复重试不产生副作用）
 
 ## 7. 批改判卷 API
 
@@ -41,5 +41,5 @@
 ## 8. 诊断接线与收尾
 
 - [x] 8.1 保存结果成功后触发既有 `run-llm` 批量诊断（按 exam_id），验证 mock 下保存后诊断被调用且仅一次
-- [ ] 8.2 全量 `pytest tests/ --tb=short -x` 通过，验证无回归
-- [ ] 8.3 运行 `/code-review` 后端审查并修复问题，验证审查通过、`git log` 按 Conventional Commits 原子提交
+- [x] 8.2 全量 `pytest tests/ --tb=short -x` 通过，验证无回归
+- [x] 8.3 运行 `/code-review` 后端审查并修复问题，验证审查通过、`git log` 按 Conventional Commits 原子提交
