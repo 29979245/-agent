@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.config import settings  # 必须在各 router 之前导入：config 加载 .env 的 JWT_SECRET，security.py 导入期即读取
 from app.api.v1.audit import audit_router
 from app.api.v1.auth import auth_router, parent_router
 from app.api.v1.diagnosis import diagnosis_router
@@ -26,7 +27,6 @@ from app.api.v1.review import review_router
 from app.api.v1.student import student_router
 from app.api.v1.warning import warning_router
 from app.api.v1.wrong_question import wrong_question_router
-from app.config import settings
 from app.core.exceptions import APIException
 from app.core.middleware import AuthMiddleware
 from app.services.exercise.scheduler import create_scheduler
