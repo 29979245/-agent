@@ -106,6 +106,30 @@
     return resp.blob();
   }
 
+  // SSE 流解析：按空行切分事件块，解析 event:/data: 行（data 可多行合并，容错 \r\n）
+  async function parseSSE(body, { onEvent }) {
+    const reader = body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      let idx;
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const block = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        let event = '';
+        const dataLines = [];
+        block.split('\n').forEach((line) => {
+          if (line.indexOf('event:') === 0) event = line.slice(6).trim();
+          else if (line.indexOf('data:') === 0) dataLines.push(line.slice(5).trim());
+        });
+        if (dataLines.length) onEvent(event, dataLines.join('\n'));
+      }
+    }
+  }
+
   // 知识点静态列表：后端无 /api/knowledge 端点，前端内置（Tab 1 知识云）
   const STATIC_KNOWLEDGE = [
     '氧化还原反应',
@@ -302,6 +326,98 @@
         method: 'POST',
         body: { student_id: studentId },
       });
+    },
+
+    // ---- 学生报告（/api/report）----
+    getStudentReport(studentId) {
+      return request('/api/report/student/' + studentId);
+    },
+
+    // ---- 家长绑定码（/api/student）----
+    generateBindCode(studentId) {
+      return request('/api/student/' + studentId + '/bind-code', { method: 'POST' });
+    },
+
+    // ---- 修改密码（/api/auth）----
+    changePassword(payload) {
+      return request('/api/auth/change-password', { method: 'POST', body: payload });
+    },
+
+    // ---- AI 助教对话（/api/agent/chat/langgraph/stream，SSE 流式）----
+    // 返回 { cancel, done }：cancel() 中止连接；done 为 Promise，正常结束不 reject。
+    // onError(data)：data.degradable=true 表示端点未实现可降级；kind ∈ not_implemented/network/stream/http/canceled。
+    agentChatStream(payload, handlers = {}) {
+      const { onPhase, onText, onToolCall, onToolResult, onDone, onError } = handlers;
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+
+      const promise = (async () => {
+        const opts = {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+          signal: controller.signal,
+        };
+        const token = getToken();
+        if (token) opts.headers.Authorization = 'Bearer ' + token;
+        opts.body = JSON.stringify(payload);
+
+        let resp;
+        try {
+          resp = await fetch(baseURL + '/api/agent/chat/langgraph/stream', opts);
+        } catch (err) {
+          if (onError) {
+            onError(controller.signal.aborted
+              ? { degradable: false, kind: 'canceled', message: '已取消' }
+              : { degradable: false, kind: 'network', message: err.message });
+          }
+          return { canceled: controller.signal.aborted };
+        }
+
+        try { handleAuth(resp); } catch (err) { return { canceled: false }; }  // 401/403 已跳转，静默结束
+
+        if (resp.status === 404) {
+          if (onError) onError({ degradable: true, kind: 'not_implemented', message: 'AI 助教后端尚未上线' });
+          return { canceled: false };
+        }
+        if (!resp.ok) {
+          let data = null;
+          try { data = await resp.json(); } catch (err) { /* 非 JSON 错误体 */ }
+          if (onError) onError({ degradable: false, kind: 'http', status: resp.status, message: extractDetail(data, resp.status) });
+          return { canceled: false };
+        }
+
+        try {
+          await parseSSE(resp.body, {
+            onEvent: (eventName, dataText) => {
+              let dataObj = {};
+              try { dataObj = JSON.parse(dataText); } catch (err) { dataObj = { content: dataText }; }
+              const name = eventName || dataObj.type || '';
+              if (name === 'text' || name === 'token') {
+                if (onText) onText(dataObj.content || '');
+              } else if (name === 'phase' || name === 'thinking') {
+                if (onPhase) onPhase(dataObj.content || dataObj.phase || dataObj.state || name);
+              } else if (name === 'tool_call') {
+                if (onToolCall) onToolCall(dataObj);
+              } else if (name === 'tool_result') {
+                if (onToolResult) onToolResult(dataObj);
+              } else if (name === 'done') {
+                if (onDone) onDone(dataObj);
+              } else if (name === 'error') {
+                if (onError) onError({ degradable: false, kind: 'stream_error', message: dataObj.message || '对话出错' });
+              } else if (name === 'planning' || name === 'executing' || name === 'reply' || name === 'awaiting_approval') {
+                if (onPhase) onPhase(name);
+              }
+            },
+          });
+        } catch (err) {
+          if (!controller.signal.aborted && onError) {
+            onError({ degradable: false, kind: 'stream', message: err.message || '连接中断' });
+          }
+        }
+        return { canceled: controller.signal.aborted };
+      })();
+
+      return { cancel, done: promise };
     },
   };
 })();
