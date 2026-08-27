@@ -147,6 +147,14 @@
         const card = headerEl.closest('.card');
         if (!card) return;
         const content = card.querySelector('.content');
+        const willExpand = !card.classList.contains('expanded');
+        // 单开手风琴：展开新卡前先收起其他已展开卡片
+        document.querySelectorAll('#wrongList .card.expanded').forEach((other) => {
+          if (other === card) return;
+          other.classList.remove('expanded');
+          const oc = other.querySelector('.content');
+          if (oc) oc.style.maxHeight = '0px';
+        });
         card.classList.toggle('expanded');
         content.style.maxHeight = card.classList.contains('expanded') ? content.scrollHeight + 'px' : '0px';
       }
