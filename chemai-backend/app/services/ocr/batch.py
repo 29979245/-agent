@@ -243,6 +243,7 @@ def run_grading(
         )
 
     bank = bank_answers if bank_answers is not None else grading_bank_answers(db, exam_id)
+    q_by_pos = questions_by_position(db, exam_id)  # 位置→Question，供题型标注
     has_exam = bool(bank)
     graded: list[dict] = []
     for task in tasks:
@@ -253,6 +254,11 @@ def run_grading(
             bank_answers=bank,
             teacher_answers=teacher_answers,
         )
+        # 题型标注：命中题库题目时补 has_options（有选项→选择题），随 task.result 落库
+        for item in grading.get("items", []):
+            q = q_by_pos.get(item.get("question_no"))
+            if q is not None:
+                item["has_options"] = bool(q.options)
         result["grading"] = grading
         task.result = result
         graded.append(

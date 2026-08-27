@@ -163,7 +163,7 @@ def _task(db, session, status=OCRTaskStatus.pending, result=None):
     return t
 
 
-def _exam(db, answers=("A", "B"), cls=None):
+def _exam(db, answers=("A", "B"), cls=None, options=None):
     exam = ExamRecord(
         class_id=cls.id if cls else None, name="期中", status=ExamStatus.published,
         exam_type=ExamType.exam, exam_date=_TODAY,
@@ -173,7 +173,7 @@ def _exam(db, answers=("A", "B"), cls=None):
     for i, ans in enumerate(answers):
         db.add(
             Question(
-                content=f"第{i+1}题", options=[], answer=ans, analysis="",
+                content=f"第{i+1}题", options=(options[i] if options else []), answer=ans, analysis="",
                 knowledge_points="", difficulty=Difficulty.medium, record_id=exam.id,
             )
         )
@@ -478,6 +478,42 @@ def test_grading_results_query(ocr_client):
     assert body["tasks"][0]["student_name"] == "张三"
     assert body["tasks"][0]["grading"]["source"] == "self"
     assert body["submissions"] == []
+
+
+def test_grading_results_carries_has_options_in_bank_mode(ocr_client):
+    """模式1（有考试）：逐题 item 携带 has_options，且与题目 options 一致（可选=选择题）。"""
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    _, cls = _org(db, school)
+    # 第1题有选项（选择题）、第2题无选项（填空题）
+    exam = _exam(db, answers=("A", "B"), cls=cls, options=[["A", "B", "C", "D"], []])
+    s = _session(db)
+    _task(db, s, OCRTaskStatus.done, result=_done_result())
+    db.commit()
+    r = client.post(
+        "/api/grading/run", json={"batch_id": s.id, "exam_id": exam.id}, headers=_auth(acc)
+    )
+    assert r.status_code == 200
+    items = r.json()["tasks"][0]["items"]
+    assert [i["has_options"] for i in items] == [True, False]
+    # results 端点带出落库的 has_options
+    body = client.get(f"/api/grading/results/{s.id}", headers=_auth(acc)).json()
+    assert [i["has_options"] for i in body["tasks"][0]["grading"]["items"]] == [True, False]
+
+
+def test_grading_self_mode_omits_has_options(ocr_client):
+    """模式3（无考试/LLM 自判）：items 不携带 has_options，前端不拆选择题/填空题列。"""
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    s = _session(db)
+    _task(db, s, OCRTaskStatus.done, result={"answers": [{"question_no": 1, "answer": "H2O"}]})
+    db.commit()
+    r = client.post("/api/grading/run", json={"batch_id": s.id}, headers=_auth(acc))
+    assert r.status_code == 200
+    items = r.json()["tasks"][0]["items"]
+    assert "has_options" not in items[0]
 
 
 # ---------------- 8.3 修复回归：越权/幂等/错误体/边界 ----------------

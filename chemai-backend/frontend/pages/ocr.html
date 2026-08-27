@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OCR 答题卡批改 · 智辅化学</title>
+  <!-- 零构建：自托管字体 + 设计令牌 + IIFE（对齐 panel.html / exam-v2.html 约定），无 Google CDN。 -->
+  <style>
+    /* 设计 token 对齐 stitch-prototypes/pages/ocr.html 学术纸张风色板 */
+    :root {
+      --oxford: #002045;
+      --teal: #13696a;
+      --paper: #faf8f5;
+      --white: #ffffff;
+      --ink: #1f2733;
+      --muted: #6b7280;
+      --line: #e5e1d8;
+      --line-strong: #d6d0c4;
+      --congo: #93000a;
+      --fail: #b91c1c;
+      --pass-bg: #e0f2f1; --pass-text: #004f50;
+      --warn-bg: #fff3cd; --warn-text: #856404;
+      --review-bg: #ffead6; --review-text: #c2410c;
+    }
+
+    /* 字体本地化：Cormorant Garamond（衬线标题）+ IBM Plex Sans（正文），中文回退系统字体 */
+    @font-face { font-family: "Cormorant Garamond"; src: url("vendor/fonts/cormorant-garamond-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+    @font-face { font-family: "Cormorant Garamond"; src: url("vendor/fonts/cormorant-garamond-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+    @font-face { font-family: "Cormorant Garamond"; src: url("vendor/fonts/cormorant-garamond-latin-700-normal.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+    @font-face { font-family: "IBM Plex Sans"; src: url("vendor/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+    @font-face { font-family: "IBM Plex Sans"; src: url("vendor/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+    @font-face { font-family: "IBM Plex Sans"; src: url("vendor/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+    @font-face { font-family: "IBM Plex Sans"; src: url("vendor/fonts/ibm-plex-sans-latin-700-normal.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+      background: var(--paper); color: var(--ink); font-size: 14px; line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    .brand-font { font-family: "Cormorant Garamond", Georgia, "Songti SC", "SimSun", serif; }
+
+    /* ============ 页头 ============ */
+    .site-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 40px; background: var(--white); border-bottom: 1px solid var(--line);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .flask-icon { color: var(--teal); flex-shrink: 0; }
+    .brand-title { font-size: 24px; font-weight: 700; color: var(--oxford); line-height: 1.1; }
+    .brand-sub { font-size: 12px; color: var(--muted); letter-spacing: 0.02em; }
+    .header-right { display: flex; align-items: center; gap: 16px; }
+    .back-link { color: var(--teal); text-decoration: none; font-size: 14px; font-weight: 500; }
+    .back-link:hover { text-decoration: underline; }
+    .user { text-align: right; font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .user-role { font-size: 11px; }
+    .logout {
+      background: none; border: 1px solid var(--line-strong); color: var(--oxford);
+      border-radius: 8px; padding: 5px 14px; cursor: pointer; font-size: 12px; font-weight: 500;
+    }
+    .logout:hover { border-color: var(--oxford); }
+
+    /* ============ 主体容器 ============ */
+    .page { max-width: 1160px; margin: 0 auto; padding: 24px 40px 120px; }
+
+    /* ============ 标题栏 ============ */
+    .title-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+    .page-title { font-size: 22px; font-weight: 700; color: var(--oxford); }
+    .title-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .selector-group { display: flex; align-items: center; gap: 8px; }
+    .select {
+      background: #fff; border: 1px solid var(--line-strong); border-radius: 8px;
+      padding: 8px 12px; font-family: inherit; font-size: 13px; color: var(--ink); cursor: pointer;
+    }
+    .select:focus { outline: none; border-color: var(--teal); }
+
+    /* ============ 服务状态 ============ */
+    .service-status { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; font-size: 12px; color: var(--muted); }
+    .svc { padding: 3px 10px; border-radius: 999px; font-weight: 500; }
+    .svc-on { background: var(--pass-bg); color: var(--pass-text); }
+    .svc-off { background: #f3f4f6; color: var(--muted); }
+
+    /* ============ 上传区 ============ */
+    .upload-zone {
+      width: 100%; max-width: 560px; margin: 8px auto 28px;
+      border: 2px dashed var(--line-strong); border-radius: 10px; background: var(--white);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; padding: 36px 24px; cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .upload-zone.dragover { border-color: var(--teal); background: rgba(19,105,106,.06); }
+    .cloud-icon { color: #9ca3af; margin-bottom: 12px; }
+    .upload-hint { color: var(--muted); font-size: 14px; margin-bottom: 14px; }
+    .upload-rule { font-size: 12px; color: #9ca3af; margin-bottom: 14px; }
+    .btn-select {
+      background: var(--oxford); color: #fff; border: none; border-radius: 8px;
+      padding: 10px 22px; font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+    }
+    .btn-select:hover { opacity: 0.92; }
+    .btn-select:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ============ 进度区 ============ */
+    .progress-section { display: flex; flex-direction: column; gap: 8px; margin-bottom: 28px; }
+    .file-card { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; }
+    .file-card-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .file-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .file-name { font-size: 14px; font-weight: 600; color: var(--oxford); }
+    .file-status { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+    .status-done { color: #059669; }
+    .status-loading { color: #2563eb; }
+    .status-wait { color: var(--muted); }
+    .status-fail { color: var(--fail); }
+    .file-err { font-size: 12px; color: var(--fail); }
+    .action-link { color: var(--teal); font-size: 14px; font-weight: 500; text-decoration: none; cursor: pointer; }
+    .action-link:hover { text-decoration: underline; }
+    .disabled-text { color: #b0b6bf; font-size: 13px; }
+    .spinner { animation: spin 0.9s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .progress-track { margin-top: 10px; height: 5px; background: var(--line); border-radius: 999px; overflow: hidden; }
+    .progress-fill { height: 100%; width: 0%; background: var(--teal); border-radius: 999px; transition: width 0.4s ease; }
+
+    /* ============ 结果表格 ============ */
+    .table-wrap { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 32px; background: #fff; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    thead th { background: var(--oxford); color: #fff; text-align: left; padding: 12px 14px; font-weight: 600; font-size: 13px; }
+    tbody td { padding: 12px 14px; border-top: 1px solid var(--line); color: var(--ink); }
+    tbody tr:nth-child(even) { background: #fafafa; }
+    .score-strong { font-weight: 700; }
+    .empty-cell { text-align: center; color: var(--muted); padding: 32px 14px; }
+    .chip { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .chip-done { background: var(--pass-bg); color: var(--pass-text); }
+    .chip-grading { background: #e0edff; color: #1e40af; }
+    .chip-review { background: var(--review-bg); color: var(--review-text); }
+    .table-actions { display: flex; gap: 8px; }
+    .btn-sm { padding: 5px 12px; border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+    .btn-detail { background: var(--teal); color: #fff; border-color: var(--teal); }
+    .btn-export-sm { background: #fff; color: var(--muted); border: 1px solid var(--line-strong); }
+    .btn-sm:hover { opacity: 0.9; }
+
+    /* ============ 底部操作栏 ============ */
+    .bottom-bar {
+      position: sticky; bottom: 0; background: #f5f4f1; border-top: 1px solid var(--line);
+      padding: 14px 40px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+      box-shadow: 0 -2px 10px rgba(0,0,0,.04);
+    }
+    .summary { font-size: 14px; color: var(--muted); display: flex; gap: 24px; flex-wrap: wrap; }
+    .summary b { color: var(--oxford); font-weight: 700; }
+    .bottom-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn-bar { padding: 10px 16px; border-radius: 8px; font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer; border: 1px solid transparent; }
+    .btn-bar:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-teal { background: var(--teal); color: #fff; }
+    .btn-teal-outline { background: #fff; color: var(--teal); border: 1px solid var(--teal); }
+    .btn-oxford { background: var(--oxford); color: #fff; }
+    a.btn-bar { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+    .btn-bar:hover { opacity: 0.92; }
+
+    /* ============ 详情弹层 ============ */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,32,69,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 24px; }
+    .modal {
+      background: #fff; border-radius: 12px; max-width: 720px; width: 100%; max-height: 80vh;
+      display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,.18);
+    }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+    .modal-title { font-size: 16px; font-weight: 700; color: var(--oxford); }
+    .modal-close { background: none; border: none; font-size: 22px; line-height: 1; color: var(--muted); cursor: pointer; }
+    .modal-close:hover { color: var(--ink); }
+    .modal-body { overflow-y: auto; padding: 16px 20px 20px; }
+    .detail-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .detail-table th { background: var(--paper); color: var(--oxford); text-align: left; padding: 8px 10px; font-weight: 600; border-bottom: 1px solid var(--line); }
+    .detail-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--ink); vertical-align: top; }
+    .v-ok { color: #059669; font-weight: 700; }
+    .v-err { color: var(--fail); font-weight: 700; }
+    .v-unk { color: var(--muted); }
+    .type-tag { font-size: 11px; color: var(--muted); margin-right: 4px; }
+
+    /* ============ toast ============ */
+    .toast {
+      position: fixed; top: 20px; right: 20px; z-index: 2000; padding: 12px 18px; border-radius: 8px;
+      color: #fff; font-size: 13px; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,.15);
+      opacity: 0; transform: translateY(-8px); transition: opacity .2s ease, transform .2s ease; pointer-events: none; max-width: 420px;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.err { background: var(--congo); }
+    .toast.ok { background: var(--teal); }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <!-- 页头 -->
+  <header class="site-header">
+    <div class="brand">
+      <svg class="flask-icon" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M9 3h6" />
+        <path d="M10 3v6.5L4.8 18.2A2 2 0 0 0 6.5 21h11a2 2 0 0 0 1.7-2.8L14 9.5V3" />
+        <path d="M7.2 15h9.6" />
+      </svg>
+      <div>
+        <div class="brand-title brand-font">ChemAI 智辅化学</div>
+        <div class="brand-sub">答题卡批改 · OCR Grading</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <a class="back-link" href="exam-v2.html">← 主面板</a>
+      <div class="user">
+        <div id="userName">教师</div>
+        <div class="user-role" id="userRole">教师端</div>
+      </div>
+      <button class="logout" id="logoutBtn" type="button">退出</button>
+    </div>
+  </header>
+
+  <main class="page">
+    <!-- 标题栏：班级 → 考试联动 + 历史批次 -->
+    <div class="title-bar">
+      <h1 class="page-title">OCR 答题卡批改</h1>
+      <div class="title-controls">
+        <div class="selector-group">
+          <select id="classSelect" class="select" aria-label="选择班级"><option value="">选择班级</option></select>
+          <select id="examSelect" class="select" aria-label="选择考试"><option value="">选择考试</option></select>
+        </div>
+        <select id="historySelect" class="select" aria-label="历史批次"><option value="">历史批次</option></select>
+      </div>
+    </div>
+
+    <div class="service-status" id="serviceStatus"></div>
+
+    <!-- 上传区 -->
+    <div class="upload-zone" id="uploadZone">
+      <svg class="cloud-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M17.5 19a4.5 4.5 0 0 0 .5-8.97 6 6 0 0 0-11.64-1.4A4 4 0 0 0 6 19h11.5Z" />
+        <path d="M12 12v6" />
+        <path d="M9.5 14.5 12 12l2.5 2.5" />
+      </svg>
+      <p class="upload-hint">拖拽答题卡图片到此处，或点击选择文件</p>
+      <p class="upload-rule">支持 jpg / png / bmp / webp / pdf · 单文件 ≤ 10MB · 单批 ≤ 10 张</p>
+      <button class="btn-select" type="button" id="selectBtn">选择文件</button>
+      <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.bmp,.webp,.pdf" multiple class="hidden" />
+    </div>
+
+    <!-- 上传进度区 -->
+    <section class="progress-section" id="progressSection" aria-label="上传进度"></section>
+
+    <!-- 批改结果表格 -->
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>姓名</th><th>学号</th><th>总分</th><th>选择题</th><th>填空题</th><th>状态</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="resultBody">
+          <tr><td colspan="7" class="empty-cell">暂无批改结果</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- 底部操作栏 -->
+  <div class="bottom-bar">
+    <div class="summary" id="summaryBar">
+      <span>平均分 <b>—</b></span>
+      <span>最高分 <b>—</b></span>
+      <span>最低分 <b>—</b></span>
+    </div>
+    <div class="bottom-actions">
+      <button class="btn-bar btn-teal-outline" id="exportBtn" type="button">导出成绩</button>
+      <button class="btn-bar btn-teal-outline" id="sendBtn" type="button">发送给学生</button>
+      <a class="btn-bar btn-oxford" href="diagnosis.html">开始诊断障碍</a>
+      <button class="btn-bar btn-teal" id="saveBtn" type="button">保存批改结果</button>
+    </div>
+  </div>
+
+  <!-- 详情弹层 -->
+  <div class="modal-overlay hidden" id="modalOverlay">
+    <div class="modal">
+      <div class="modal-head">
+        <span class="modal-title" id="modalTitle">答题卡详情</span>
+        <button class="modal-close" id="modalClose" type="button" aria-label="关闭">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- toast -->
+  <div class="toast" id="toast"></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      var ChemAPI = window.ChemAPI;
+      var ChemAuth = window.ChemAuth;
+
+      if (!ChemAuth.requireAuth()) return;
+      if (!ChemAuth.isTeacherLike()) { location.href = 'forbidden.html?side=teacher'; return; }
+
+      var user = ChemAuth.getUser() || {};
+      document.getElementById('userName').textContent = user.name || '教师';
+      document.getElementById('userRole').textContent = user.role === 'admin' ? '管理员' : '教师端';
+      document.getElementById('logoutBtn').addEventListener('click', function () {
+        ChemAuth.logout();
+        location.href = 'login.html';
+      });
+
+      function el(id) { return document.getElementById(id); }
+
+      function escapeHtml(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      }
+
+      var toastTimer = null;
+      function toast(msg, isErr) {
+        var t = el('toast');
+        t.textContent = msg;
+        t.className = 'toast ' + (isErr ? 'err' : 'ok') + ' show';
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { t.className = 'toast'; }, 3400);
+      }
+
+      // ---- 客户端文件校验（单文件 ≤10MB、单批 ≤10 张、格式白名单）----
+      var ALLOWED_EXT = ['jpg', 'jpeg', 'png', 'bmp', 'webp', 'pdf'];
+      var MAX_BYTES = 10 * 1024 * 1024;
+      var MAX_FILES = 10;
+
+      function validateFiles(files) {
+        if (!files || files.length === 0) return '未选择文件，请先选择或拖入答题卡图片';
+        if (files.length > MAX_FILES) return '单批最多上传 ' + MAX_FILES + ' 张答题卡';
+        for (var i = 0; i < files.length; i++) {
+          var f = files[i];
+          var ext = (f.name.split('.').pop() || '').toLowerCase();
+          if (ALLOWED_EXT.indexOf(ext) === -1) {
+            return '不支持的文件格式：' + f.name + '（支持 jpg/png/bmp/webp/pdf）';
+          }
+          if (f.size > MAX_BYTES) {
+            return '文件过大：' + f.name + '（单文件上限 10MB）';
+          }
+        }
+        return null;
+      }
+
+      // ---- 状态 ----
+      var currentBatchId = null;   // 当前查看/上传的批次
+      var examId = null;           // 标题栏选中的考试
+      var runTriggered = false;    // 防重复自动批改 flag（后端另有 409 兜底）
+      var currentTerminal = false; // 批次已终态（done/discarded/error）→ 停轮询
+      var pollTimer = null;
+      var currentResults = [];
+
+      function setSaveUI(disabled) {
+        el('saveBtn').disabled = disabled;
+        el('saveBtn').textContent = disabled ? '已保存' : '保存批改结果';
+      }
+
+      // ---- 班级 → 考试联动 ----
+      function loadClasses() {
+        ChemAPI.getClasses().then(function (res) {
+          var opts = (res.items || []).map(function (c) {
+            return '<option value="' + c.id + '">' + escapeHtml(c.name) + '</option>';
+          });
+          el('classSelect').innerHTML = '<option value="">选择班级</option>' + opts.join('');
+        }).catch(function (e) { toast(e.message, true); });
+      }
+
+      function loadExams(classId, className) {
+        el('examSelect').innerHTML = '<option value="">选择考试</option>';
+        if (!classId) { examId = null; return; }
+        ChemAPI.getExams({ page_size: 100 }).then(function (res) {
+          // 后端考试列表无 class_id，按班级名前端联动（最佳近似）
+          var items = (res.items || []).filter(function (e) { return className && e.class_name === className; });
+          var opts = items.map(function (e) {
+            return '<option value="' + e.exam_id + '">' + escapeHtml(e.name) + '</option>';
+          });
+          el('examSelect').innerHTML = '<option value="">选择考试</option>' + opts.join('');
+        }).catch(function (e) { toast(e.message, true); });
+      }
+
+      el('classSelect').addEventListener('change', function () {
+        var opt = this.options[this.selectedIndex];
+        loadExams(Number(this.value) || null, opt ? opt.text : '');
+      });
+      el('examSelect').addEventListener('change', function () {
+        examId = Number(this.value) || null;
+      });
+
+      // ---- 历史批次下拉 ----
+      function loadHistory() {
+        ChemAPI.getOcrBatches().then(function (res) {
+          var batches = res.batches || [];
+          var opts = batches.map(function (b) {
+            var tasks = b.tasks || [];
+            var done = tasks.filter(function (t) { return t.status === 'done'; }).length;
+            return '<option value="' + b.batch_id + '">批次 ' + b.batch_id + ' · ' +
+              escapeHtml(b.status) + '（' + done + '/' + tasks.length + ' 完成）</option>';
+          });
+          el('historySelect').innerHTML = '<option value="">历史批次</option>' + opts.join('');
+        }).catch(function () { /* 历史列表加载失败静默，不阻断主流程 */ });
+      }
+
+      el('historySelect').addEventListener('change', function () {
+        var bid = Number(this.value) || null;
+        if (!bid) return;
+        currentBatchId = bid;
+        runTriggered = false;
+        currentTerminal = false;
+        setSaveUI(false);
+        loadBatchView();
+      });
+
+      // ---- 上传 ----
+      var uploadZone = el('uploadZone');
+      var fileInput = el('fileInput');
+
+      uploadZone.addEventListener('click', function () { fileInput.click(); });
+      el('selectBtn').addEventListener('click', function (e) { e.stopPropagation(); fileInput.click(); });
+      fileInput.addEventListener('change', function () {
+        if (fileInput.files && fileInput.files.length) doUpload(fileInput.files);
+        fileInput.value = '';
+      });
+      uploadZone.addEventListener('dragover', function (e) {
+        e.preventDefault(); uploadZone.classList.add('dragover');
+      });
+      uploadZone.addEventListener('dragleave', function () { uploadZone.classList.remove('dragover'); });
+      uploadZone.addEventListener('drop', function (e) {
+        e.preventDefault(); uploadZone.classList.remove('dragover');
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) doUpload(e.dataTransfer.files);
+      });
+
+      function doUpload(fileList) {
+        var files = Array.prototype.slice.call(fileList);
+        var err = validateFiles(files);
+        if (err) { toast(err, true); return; }
+        var btn = el('selectBtn');
+        btn.disabled = true;
+        btn.textContent = '上传中…';
+        ChemAPI.uploadOcrBatch(files).then(function (res) {
+          currentBatchId = res.batch_id;
+          runTriggered = false;
+          currentTerminal = false;
+          setSaveUI(false);
+          toast('批次 ' + res.batch_id + ' 已创建，共 ' + res.count + ' 张答题卡', false);
+          loadBatchView();
+        }).catch(function (e) {
+          toast(e.message, true);
+        }).finally(function () {
+          btn.disabled = false;
+          btn.textContent = '选择文件';
+        });
+      }
+
+      // ---- 进度轮询（5s）----
+      function startPolling() {
+        stopPolling();
+        pollTimer = setInterval(function () {
+          pollTick().then(function (cont) { if (!cont) stopPolling(); });
+        }, 5000);
+      }
+      function stopPolling() {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      }
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) { stopPolling(); }
+        else if (currentBatchId && !currentTerminal) { startPolling(); }
+      });
+
+      function loadBatchView() {
+        if (!currentBatchId) return;
+        stopPolling();
+        pollTick().then(function (cont) { if (cont) startPolling(); });
+      }
+
+      async function pollTick() {
+        if (!currentBatchId) return false;
+        try {
+          var agg = await ChemAPI.getOcrBatchStatus(currentBatchId);
+          renderProgressCards(agg);
+          var terminal = ['done', 'discarded', 'error'].indexOf(agg.status) !== -1;
+          currentTerminal = terminal;
+          if (terminal) {
+            if (agg.status === 'done') { loadResults(); setSaveUI(true); }
+            return false;
+          }
+          // 识别全部完成 → 自动批改（一次性 flag 防重复，后端 409 兜底）
+          if (agg.total > 0 && agg.done === agg.total && agg.failed === 0) {
+            if (agg.status === 'grading') { loadResults(); return false; }  // 已批改未保存
+            if (!runTriggered) {
+              if (examId) { runTriggered = true; triggerGrading(); return false; }
+              toast('识别已完成，请先在标题栏选择考试以自动批改', true);
+              return false;
+            }
+            return false;
+          }
+          // 存在失败任务未重试 → 停止轮询等教师介入（重试后恢复）
+          if (agg.done + agg.failed === agg.total) return false;
+          return true;  // 仍在识别，继续轮询
+        } catch (e) {
+          toast(e.message, true);
+          return false;
+        }
+      }
+
+      function renderProgressCards(agg) {
+        var cards = (agg.tasks || []).map(function (t) {
+          var left;
+          if (t.status === 'done') {
+            left = '<span class="file-status status-done"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-4.5"/></svg>识别完成</span>';
+          } else if (t.status === 'processing') {
+            left = '<span class="file-status status-loading"><svg class="spinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/></svg>正在识别中 ' + (t.progress || 0) + '%</span>';
+          } else if (t.status === 'failed') {
+            left = '<span class="file-status status-fail"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/></svg>识别失败</span>';
+          } else {
+            left = '<span class="file-status status-wait"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>等待中</span>';
+          }
+          var right = '';
+          if (t.status === 'failed') {
+            right = '<div style="text-align:right"><a class="action-link" href="#" data-retry="' + t.task_id + '">重试</a>' +
+              (t.error ? '<div class="file-err">' + escapeHtml(t.error) + '</div>' : '') + '</div>';
+          } else if (t.status === 'done') {
+            right = '<span class="disabled-text">— —</span>';
+          }
+          var bar = '';
+          if (t.status === 'processing') {
+            var pct = Math.min(100, Math.max(0, Number(t.progress) || 0));
+            bar = '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
+          }
+          return '<div class="file-card"><div class="file-card-row"><div class="file-left">' +
+            '<span class="file-name">' + escapeHtml(t.title) + '</span>' + left + '</div>' + right +
+            '</div>' + bar + '</div>';
+        }).join('');
+        el('progressSection').innerHTML = cards || '<div class="file-card"><div class="file-card-row"><span class="file-name">暂无任务</span></div></div>';
+      }
+
+      // 失败任务重试（事件委托）
+      el('progressSection').addEventListener('click', function (e) {
+        var link = e.target.closest ? e.target.closest('a[data-retry]') : null;
+        if (link) {
+          e.preventDefault();
+          var taskId = Number(link.getAttribute('data-retry'));
+          ChemAPI.retryOcrTask(taskId).then(function (res) {
+            toast('任务已重置为待处理，正在重新识别', false);
+            startPolling();
+          }).catch(function (err) { toast(err.message, true); });
+        }
+      });
+
+      // ---- 自动批改 ----
+      function triggerGrading() {
+        ChemAPI.runGrading({ batch_id: currentBatchId, exam_id: examId }).then(function (res) {
+          stopPolling();
+          toast('自动批改完成，共 ' + res.graded + ' 张答题卡', false);
+          renderResults(normalizeResults(res.tasks));
+        }).catch(function (e) {
+          stopPolling();
+          toast(e.message, true);  // 404/409 等错误体直接提示
+        });
+      }
+
+      function loadResults() {
+        ChemAPI.getGradingResults(currentBatchId).then(function (res) {
+          renderResults(normalizeResults(res.tasks));
+          if (res.status === 'done') setSaveUI(true);
+        }).catch(function (e) { toast(e.message, true); });
+      }
+
+      // ---- 结果归一化：总分 = 正确数；选择题/填空题按 has_options 拆分（缺失显示 —）----
+      function normalizeResults(tasks) {
+        return (tasks || []).map(function (t) {
+          var g = t.grading || t;
+          var items = g.items || [];
+          var manualReview = !!g.manual_review || items.some(function (i) { return i.review_needed; });
+          var total = items.filter(function (i) { return i.is_correct === true; }).length;
+          var hasAnyOptions = items.some(function (i) { return 'has_options' in i; });
+          var choice = hasAnyOptions ? items.filter(function (i) { return i.has_options === true && i.is_correct === true; }).length : null;
+          var blank = hasAnyOptions ? items.filter(function (i) { return i.has_options === false && i.is_correct === true; }).length : null;
+          return {
+            student_no: t.student_no,
+            student_name: t.student_name,
+            total: total,
+            choice: choice,
+            blank: blank,
+            manualReview: manualReview,
+            source: g.source,
+            items: items,
+          };
+        });
+      }
+
+      function renderResults(rows) {
+        currentResults = rows;
+        if (!rows || rows.length === 0) {
+          el('resultBody').innerHTML = '<tr><td colspan="7" class="empty-cell">暂无批改结果</td></tr>';
+          renderSummary([]);
+          return;
+        }
+        el('resultBody').innerHTML = rows.map(function (r, idx) {
+          var choice = r.choice === null ? '—' : r.choice;
+          var blank = r.blank === null ? '—' : r.blank;
+          var badge = r.manualReview
+            ? '<span class="chip chip-review">需人工复核</span>'
+            : '<span class="chip chip-done">已批改</span>';
+          return '<tr>' +
+            '<td>' + escapeHtml(r.student_name) + '</td>' +
+            '<td>' + escapeHtml(r.student_no) + '</td>' +
+            '<td class="score-strong">' + r.total + '</td>' +
+            '<td>' + choice + '</td>' +
+            '<td>' + blank + '</td>' +
+            '<td>' + badge + '</td>' +
+            '<td><div class="table-actions">' +
+            '<button class="btn-sm btn-detail" type="button" data-detail="' + idx + '">详情</button>' +
+            '<button class="btn-sm btn-export-sm" type="button" data-export="' + idx + '">导出</button>' +
+            '</div></td></tr>';
+        }).join('');
+        renderSummary(rows);
+      }
+
+      function renderSummary(rows) {
+        var totals = rows.map(function (r) { return r.total; }).filter(function (v) { return typeof v === 'number'; });
+        if (!totals.length) {
+          el('summaryBar').innerHTML = '<span>平均分 <b>—</b></span><span>最高分 <b>—</b></span><span>最低分 <b>—</b></span>';
+          return;
+        }
+        var avg = totals.reduce(function (a, b) { return a + b; }, 0) / totals.length;
+        el('summaryBar').innerHTML =
+          '<span>平均分 <b>' + (Math.round(avg * 10) / 10) + '</b></span>' +
+          '<span>最高分 <b>' + Math.max.apply(null, totals) + '</b></span>' +
+          '<span>最低分 <b>' + Math.min.apply(null, totals) + '</b></span>';
+      }
+
+      // 详情弹层 + 行操作事件委托
+      el('resultBody').addEventListener('click', function (e) {
+        var d = e.target.closest ? e.target.closest('[data-detail]') : null;
+        var x = e.target.closest ? e.target.closest('[data-export]') : null;
+        if (d) { openDetail(Number(d.getAttribute('data-detail'))); return; }
+        if (x) { exportOne(Number(x.getAttribute('data-export'))); return; }
+      });
+
+      function openDetail(idx) {
+        var r = currentResults[idx];
+        if (!r) return;
+        el('modalTitle').textContent = (r.student_name || '未知') + ' · ' + (r.student_no || '—') + ' 答题详情';
+        var rows = (r.items || []).map(function (it, i) {
+          var ok = it.is_correct === true ? '<span class="v-ok">✓</span>'
+            : (it.is_correct === false ? '<span class="v-err">✗</span>' : '<span class="v-unk">—</span>');
+          var tag = it.has_options === true ? '<span class="type-tag">选择</span>'
+            : (it.has_options === false ? '<span class="type-tag">填空</span>' : '');
+          var rev = it.review_needed ? ' <span class="chip chip-review">需复核</span>' : '';
+          return '<tr><td>' + (i + 1) + '</td><td>' + escapeHtml(it.student_answer || '') +
+            '</td><td>' + escapeHtml(it.standard_answer || '') + '</td><td>' + ok + '</td><td>' + tag + rev + '</td></tr>';
+        }).join('');
+        el('modalBody').innerHTML =
+          '<table class="detail-table"><thead><tr><th>题号</th><th>学生答案</th><th>标准答案</th><th>判定</th><th>题型</th></tr></thead><tbody>' +
+          (rows || '<tr><td colspan="5" class="empty-cell">无逐题数据（自判模式待人工核对）</td></tr>') +
+          '</tbody></table>';
+        el('modalOverlay').classList.remove('hidden');
+      }
+
+      el('modalClose').addEventListener('click', function () { el('modalOverlay').classList.add('hidden'); });
+      el('modalOverlay').addEventListener('click', function (e) {
+        if (e.target === this) el('modalOverlay').classList.add('hidden');
+      });
+
+      // ---- 导出：前端 CSV 生成（后端无导出端点，暂以前端方案）----
+      function csvRow(r) {
+        return [r.student_name, r.student_no, r.total,
+          r.choice === null ? '' : r.choice,
+          r.blank === null ? '' : r.blank,
+          r.manualReview ? '需人工复核' : '已批改'].join(',');
+      }
+      function downloadCsv(lines, filename) {
+        var blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+      }
+      function exportOne(idx) {
+        var r = currentResults[idx];
+        if (!r) { toast('暂无成绩可导出', true); return; }
+        downloadCsv(['姓名,学号,总分,选择题,填空题,状态', csvRow(r)], 'student_' + (r.student_no || idx) + '.csv');
+      }
+      el('exportBtn').addEventListener('click', function () {
+        if (!currentResults.length) { toast('暂无成绩可导出', true); return; }
+        downloadCsv(['姓名,学号,总分,选择题,填空题,状态'].concat(currentResults.map(csvRow)), 'ocr_grading_' + (currentBatchId || 'batch') + '.csv');
+      });
+
+      // ---- 发送给学生：占位 ----
+      el('sendBtn').addEventListener('click', function () {
+        toast('发送给学生：功能开发中', true);
+      });
+
+      // ---- 保存结果（落库 + 触发诊断）----
+      el('saveBtn').addEventListener('click', function () {
+        if (!currentBatchId) { toast('请先上传答题卡并完成批改', true); return; }
+        var btn = el('saveBtn');
+        btn.disabled = true;
+        ChemAPI.saveGrading({ batch_id: currentBatchId, exam_id: examId }).then(function (res) {
+          var msg = '已保存 ' + res.saved + ' 人 · 跳过 ' + res.skipped + ' · 需复核 ' + res.needs_review;
+          if (res.diagnosis && res.diagnosis.status === 'triggered') msg += '；障碍诊断已自动触发';
+          toast(msg, false);
+          setSaveUI(true);
+          loadResults();
+        }).catch(function (e) {
+          toast(e.message, true);  // BATCH_ALREADY_SAVED 等错误体直接提示
+          btn.disabled = false;
+        });
+      });
+
+      // ---- 服务状态 + 初始化 ----
+      ChemAPI.getOcrServicesStatus().then(function (res) {
+        var names = { ocr: '百度OCR', mineru: 'MinerU', vision: 'VLM' };
+        el('serviceStatus').innerHTML = '识别服务：' + Object.keys(names).map(function (k) {
+          var ok = res[k] && res[k].available;
+          return '<span class="svc ' + (ok ? 'svc-on' : 'svc-off') + '">' + names[k] + (ok ? ' 可用' : ' 未配置') + '</span>';
+        }).join('');
+      }).catch(function () { /* 服务状态加载失败静默 */ });
+
+      loadClasses();
+      loadHistory();
+    })();
+  </script>
+</body>
+</html>

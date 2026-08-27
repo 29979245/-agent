@@ -106,6 +106,32 @@
     return resp.blob();
   }
 
+  // multipart 上传（OCR 批量建批次）：FormData + Bearer，不设 Content-Type（浏览器自动带 boundary）
+  async function requestMultipart(path, formData) {
+    const opts = { method: 'POST' };
+    const token = getToken();
+    if (token) opts.headers = { Authorization: 'Bearer ' + token };
+
+    let resp;
+    try {
+      resp = await fetch(baseURL + path, opts);
+    } catch (err) {
+      throw new ApiError('无法连接后端，请确认后端已启动（' + baseURL + '）', 0);
+    }
+    handleAuth(resp);
+
+    let data = null;
+    try {
+      data = await resp.json();
+    } catch (err) {
+      /* 非 JSON 响应 */
+    }
+    if (!resp.ok) {
+      throw new ApiError(extractDetail(data, resp.status), resp.status, data);
+    }
+    return data;
+  }
+
   // SSE 流解析：按空行切分事件块，解析 event:/data: 行（data 可多行合并，容错 \r\n）
   async function parseSSE(body, { onEvent }) {
     const reader = body.getReader();
@@ -286,6 +312,34 @@
     // 试卷导出：docx/pdf 二进制下载
     exportExam(examId, { format = 'docx', with_answers = false } = {}) {
       return fetchBlob('/api/question/export/' + examId, { query: { format, with_answers } });
+    },
+
+    // ---- OCR 批改（/api/ocr + /api/grading）----
+    uploadOcrBatch(files) {
+      const formData = new FormData();
+      files.forEach((file) => formData.append('files', file));
+      return requestMultipart('/api/ocr/tasks/batch', formData);
+    },
+    getOcrBatchStatus(batchId) {
+      return request('/api/ocr/tasks/batch/' + batchId);
+    },
+    retryOcrTask(taskId) {
+      return request('/api/ocr/tasks/' + taskId + '/retry', { method: 'POST' });
+    },
+    getOcrBatches() {
+      return request('/api/ocr/tasks');
+    },
+    getOcrServicesStatus() {
+      return request('/api/ocr/services/status');
+    },
+    runGrading(payload) {
+      return request('/api/grading/run', { method: 'POST', body: payload });
+    },
+    saveGrading(payload) {
+      return request('/api/grading/save', { method: 'POST', body: payload });
+    },
+    getGradingResults(batchId) {
+      return request('/api/grading/results/' + batchId);
     },
 
     // ---- 学生练习（/api/practice）----
