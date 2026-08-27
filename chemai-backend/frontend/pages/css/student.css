@@ -772,7 +772,14 @@ a.menu-row { text-decoration: none; }
   padding: 8px 12px;
   background: #fff;
 }
+.tool-card .tool-head { display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
 .tool-card .tool-name { font-weight: 600; color: var(--oxford); }
+.tool-card .tool-chevron { color: var(--muted); font-size: 10px; }
 .tool-card .tool-status { margin-top: 3px; }
 .tool-card.ok .tool-status { color: var(--green); }
 .tool-card.fail .tool-status { color: var(--red); }
+.tool-card .tool-body {
+  margin-top: 6px; padding-top: 6px; border-top: 1px dashed #eee;
+  color: var(--ink); line-height: 1.5; word-break: break-word;
+}
+.tool-card.collapsed .tool-body { display: none; }

@@ -95,7 +95,7 @@
 
       if (!SA.requireStudent()) return;
 
-      const me = SA.getUser ? SA.getUser() : null;
+      const me = window.ChemAuth.getUser ? window.ChemAuth.getUser() : null;
       const chat = $('chat');
       const input = $('chatInput');
 
@@ -160,7 +160,11 @@
         tag.className = 'stage-tag';
         tag.id = 'stageTag';
         tag.innerHTML = '<span class="dot"></span>' + SA.escapeHtml(label);
-        chat.appendChild(tag);
+        // 阶段标签插在当前 AI 气泡上方（design D7），随 phase 更新保持原位
+        const ais = chat.querySelectorAll('.bubble.ai');
+        const lastAi = ais[ais.length - 1];
+        if (lastAi) chat.insertBefore(tag, lastAi);
+        else chat.appendChild(tag);
         scrollChat();
       }
       function clearStage() {
@@ -184,30 +188,52 @@
       }
       function renderAi(el) { el.innerHTML = SA.renderMarkdown(curAiText); }
 
-      function addToolCard(d) {
+      function buildToolCard(d, statusText) {
         const name = d.tool || d.name || '工具';
         const div = document.createElement('div');
         div.className = 'tool-card';
         div.dataset.key = String(d.tool_call_id || d.id || name);
-        div.innerHTML = '<div class="tool-name">⚙ ' + SA.escapeHtml(name) + '</div><div class="tool-status">执行中…</div>';
+        const head = document.createElement('div');
+        head.className = 'tool-head';
+        head.innerHTML = '<span class="tool-name">⚙ ' + SA.escapeHtml(name) + '</span><span class="tool-chevron">▾</span>';
+        head.addEventListener('click', () => toggleToolCard(div));
+        const status = document.createElement('div');
+        status.className = 'tool-status';
+        status.textContent = statusText;
+        const body = document.createElement('div');
+        body.className = 'tool-body';
+        div.appendChild(head);
+        div.appendChild(status);
+        div.appendChild(body);
         chat.appendChild(div);
         scrollChat();
+        return div;
+      }
+      function toggleToolCard(card) {
+        const body = card.querySelector('.tool-body');
+        const chev = card.querySelector('.tool-chevron');
+        const collapsed = card.classList.toggle('collapsed');
+        if (body) body.style.display = collapsed ? 'none' : 'block';
+        if (chev) chev.textContent = collapsed ? '▸' : '▾';
+      }
+      function addToolCard(d) {
+        buildToolCard(d, '执行中…');
       }
       function updateToolCard(d) {
         const key = String(d.tool_call_id || d.id || (d.tool || d.name || ''));
-        const target = Array.prototype.find.call(chat.querySelectorAll('.tool-card'), (c) => c.dataset.key === key);
-        if (!target) {
-          const div = document.createElement('div');
-          div.className = 'tool-card ' + (d.success === false ? 'fail' : 'ok');
-          div.innerHTML = '<div class="tool-name">⚙ ' + SA.escapeHtml(d.tool || d.name || '工具') + '</div>' +
-            '<div class="tool-status">' + (d.success === false ? '失败' : '完成') + '</div>';
-          chat.appendChild(div);
-          scrollChat();
-          return;
-        }
+        let target = Array.prototype.find.call(chat.querySelectorAll('.tool-card'), (c) => c.dataset.key === key);
+        if (!target) target = buildToolCard(d, '完成');
         target.classList.add(d.success === false ? 'fail' : 'ok');
-        target.querySelector('.tool-status').textContent = d.success === false ? '失败' : '完成';
-        if (d.result) target.title = String(d.result);
+        const st = target.querySelector('.tool-status');
+        if (st) st.textContent = d.success === false ? '失败' : '完成';
+        const body = target.querySelector('.tool-body');
+        if (d.result && body) {
+          body.innerHTML = SA.renderMarkdown(String(d.result));  // 经 XSS 净化
+          SA.renderChem(body);
+          target.classList.remove('collapsed');  // 结果到达默认展开
+          body.style.display = 'block';
+          scrollChat();
+        }
       }
 
       function endReply(aiEl, err) {
@@ -239,10 +265,10 @@
         input.value = '';
         appendUser(text);
         curAiText = '';
-        const aiEl = newAiBubble();
         setStage('thinking');
+        const aiEl = newAiBubble();
         currentChat = A.agentChatStream(
-          { message: text, thread_id: threadId, context: { user_id: (me && me.user_id) || null, role: 'student' } },
+          { message: text, thread_id: threadId, context: { user_id: (me && me.user_id) || null, role: 'student', persona: 'student' } },
           {
             onPhase: (p) => setStage(p),
             onText: (t) => { curAiText += t; renderAi(aiEl); },
@@ -268,12 +294,16 @@
       $('sendBtn').addEventListener('click', () => send(input.value));
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(input.value); });
 
-      // 初始化
-      if (me) {
-        if (me.name) $('drawerName').textContent = me.name;
-        if (me.school_id) $('drawerClass').textContent = '学号 ' + (SA.studentId() || '—');
-      }
-      if (!$('drawerName').textContent) $('drawerName').textContent = '同学';
+      // 初始化：姓名来自会话，班级来自报告（会话无 class_name）
+      $('drawerName').textContent = (me && me.name) || '同学';
+      A.getStudentReport(SA.studentId())
+        .then((r) => {
+          const p = (r && r.profile) || {};
+          $('drawerClass').textContent = p.class_name || ('学号 ' + (SA.studentId() || '—'));
+        })
+        .catch(() => {
+          $('drawerClass').textContent = '学号 ' + (SA.studentId() || '—');
+        });
       addWelcome();
       input.focus();
     })();

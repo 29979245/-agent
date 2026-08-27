@@ -87,7 +87,7 @@
 
       async function loadTasks() {
         if (!SA.requireStudent()) return;
-        const me = SA.getUser ? SA.getUser() : null;
+        const me = window.ChemAuth.getUser ? window.ChemAuth.getUser() : null;
         $('studentName').textContent = (me && me.name) || '';
         const data = await A.studentPracticeTasks(SA.studentId());
         tasks = data.tasks || [];

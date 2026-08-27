@@ -92,7 +92,7 @@
 
       async function load() {
         if (!SA.requireStudent()) return;
-        const me = SA.getUser ? SA.getUser() : null;
+        const me = window.ChemAuth.getUser ? window.ChemAuth.getUser() : null;
         $('studentName').textContent = (me && me.name) || '';
         const data = await A.studentWrongQuestions(SA.studentId());
         items = data.items || [];
@@ -147,7 +147,6 @@
         const card = headerEl.closest('.card');
         if (!card) return;
         const content = card.querySelector('.content');
-        const willExpand = !card.classList.contains('expanded');
         // 单开手风琴：展开新卡前先收起其他已展开卡片
         document.querySelectorAll('#wrongList .card.expanded').forEach((other) => {
           if (other === card) return;

@@ -214,11 +214,12 @@ def main():
         check("tabbar AI助教 激活", ok and act == "AI助教", f"active={act}")
 
         # 发送消息 → 阶段标签 → 降级卡（agent 端点 404）
-        evaluate(ws, "document.getElementById('chatInput').value='帮我讲解氧化还原'; document.getElementById('sendBtn').click()")
+        # 阶段标签在 click() 同步派发期间创建；404 降级会在后续微任务里立即 clearStage，
+        # 独立 wait_for 读取必已错过，须在 click 同一表达式内同步读取
+        stage, _ = evaluate(ws, "document.getElementById('chatInput').value='帮我讲解氧化还原'; document.getElementById('sendBtn').click(); (document.getElementById('stageTag') ? document.getElementById('stageTag').textContent : '')")
+        check("ai-tutor 阶段标签分析中", stage == "分析中", f"stage={stage}")
         ok, _ = wait_for(ws, "document.querySelectorAll('.bubble.user').length >= 1", timeout=10)
         check("ai-tutor 用户气泡追加", ok)
-        ok, stage = wait_for(ws, "document.getElementById('stageTag') && document.getElementById('stageTag').textContent")
-        check("ai-tutor 阶段标签分析中", ok and "分析中" in stage, f"stage={stage}")
         ok, _ = wait_for(ws, "document.querySelector('.degrade-card') && document.querySelector('.degrade-card').textContent.includes('AI 助教即将上线')", timeout=15)
         check("ai-tutor 降级卡出现", ok)
         ok, retry = wait_for(ws, "document.querySelector('.degrade-card .retry') ? document.querySelector('.degrade-card .retry').textContent : ''")
@@ -231,10 +232,14 @@ def main():
         ok, _ = wait_for(ws, "document.querySelectorAll('.bubble.ai').length === 1 && document.querySelector('.bubble.ai').textContent.includes('ChemAI 助教')", timeout=10)
         check("ai-tutor 新对话重置", ok)
 
-        # 抽屉开关
+        # 抽屉开关 + 内容（姓名来自会话、班级来自报告）
         evaluate(ws, "document.getElementById('menuBtn').click()")
         ok, _ = wait_for(ws, "document.getElementById('drawer').classList.contains('open')")
         check("ai-tutor 抽屉打开", ok)
+        ok, dn = wait_for(ws, "document.getElementById('drawerName') && document.getElementById('drawerName').textContent")
+        check("ai-tutor 抽屉姓名", ok and "演示学生" in dn, f"name={dn}")
+        ok, dc = wait_for(ws, "document.getElementById('drawerClass') && document.getElementById('drawerClass').textContent")
+        check("ai-tutor 抽屉班级", ok and "高一（3）班" in dc, f"class={dc}")
         evaluate(ws, "document.getElementById('drawerMask').click()")
         ok, _ = wait_for(ws, "!document.getElementById('drawer').classList.contains('open')")
         check("ai-tutor 抽屉关闭", ok)

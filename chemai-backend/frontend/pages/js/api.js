@@ -111,23 +111,31 @@
     const reader = body.getReader();
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+    const emitBlock = (block) => {
+      let event = '';
+      const dataLines = [];
+      block.split('\n').forEach((line) => {
+        if (line.indexOf('event:') === 0) event = line.slice(6).trim();
+        else if (line.indexOf('data:') === 0) dataLines.push(line.slice(5).trim());
+      });
+      if (dataLines.length) onEvent(event, dataLines.join('\n'));
+    };
+    const flush = () => {
       let idx;
       while ((idx = buffer.indexOf('\n\n')) !== -1) {
         const block = buffer.slice(0, idx);
         buffer = buffer.slice(idx + 2);
-        let event = '';
-        const dataLines = [];
-        block.split('\n').forEach((line) => {
-          if (line.indexOf('event:') === 0) event = line.slice(6).trim();
-          else if (line.indexOf('data:') === 0) dataLines.push(line.slice(5).trim());
-        });
-        if (dataLines.length) onEvent(event, dataLines.join('\n'));
+        emitBlock(block);
       }
+    };
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      flush();
     }
+    const rest = buffer.trim();
+    if (rest) emitBlock(rest);  // EOF 尾部未以空行结尾的事件（如 done）也需消费
   }
 
   // 知识点静态列表：后端无 /api/knowledge 端点，前端内置（Tab 1 知识云）
@@ -373,7 +381,15 @@
           return { canceled: controller.signal.aborted };
         }
 
-        try { handleAuth(resp); } catch (err) { return { canceled: false }; }  // 401/403 已跳转，静默结束
+        try {
+          handleAuth(resp);
+        } catch (err) {
+          // 401 已由 handleAuth 登出并跳转，静默结束；403 未跳转，需回传错误让 UI 恢复（否则 busy 卡死、发送钮永久禁用）
+          if (onError && err && err.status === 403) {
+            onError({ degradable: false, kind: 'forbidden', message: err.message });
+          }
+          return { canceled: false };
+        }
 
         if (resp.status === 404) {
           if (onError) onError({ degradable: true, kind: 'not_implemented', message: 'AI 助教后端尚未上线' });
@@ -386,6 +402,7 @@
           return { canceled: false };
         }
 
+        let doneReceived = false;
         try {
           await parseSSE(resp.body, {
             onEvent: (eventName, dataText) => {
@@ -401,6 +418,7 @@
               } else if (name === 'tool_result') {
                 if (onToolResult) onToolResult(dataObj);
               } else if (name === 'done') {
+                doneReceived = true;
                 if (onDone) onDone(dataObj);
               } else if (name === 'error') {
                 if (onError) onError({ degradable: false, kind: 'stream_error', message: dataObj.message || '对话出错' });
@@ -409,6 +427,10 @@
               }
             },
           });
+          // 流干净结束但未收到 done：视为连接中断（design D3），否则加载态悬挂
+          if (!doneReceived && !controller.signal.aborted && onError) {
+            onError({ degradable: false, kind: 'stream', message: '连接中断' });
+          }
         } catch (err) {
           if (!controller.signal.aborted && onError) {
             onError({ degradable: false, kind: 'stream', message: err.message || '连接中断' });
