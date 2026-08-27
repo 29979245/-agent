@@ -27,6 +27,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # 模式2/3（无考试）提交的 exam_id IS NULL 行在恢复 NOT NULL 前必须先清理，否则回滚硬失败
+    op.execute("DELETE FROM student_submission WHERE exam_id IS NULL")
     with op.batch_alter_table('student_submission') as batch_op:
         batch_op.alter_column('exam_id', existing_type=sa.Integer(), nullable=False)
 
