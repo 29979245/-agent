@@ -117,8 +117,11 @@ def retry_task_endpoint(
                 error_code="TASK_SCOPE_MISMATCH",
                 suggestion="仅可操作本校答题卡任务",
             )
+    before = task.status
     retry_task(db, task)
     db.commit()
+    if task.status == before:  # 非 failed 任务为 no-op，如实告知而非谎报已重置
+        return {"task_id": task.id, "status": task.status.value, "message": f"任务已是 {before.value}，无需重试"}
     return {"task_id": task.id, "status": task.status.value, "message": "已重置为待处理"}
 
 
@@ -184,7 +187,13 @@ def grading_save_endpoint(
     )
     run_exam_id = payload.exam_id if payload.exam_id is not None else session.exam_id
     if run_exam_id is not None and result["saved"] > 0:
-        run_llm_batch(db, run_exam_id, client, request.state.user)
+        try:
+            run_llm_batch(db, run_exam_id, client, request.state.user)
+            result["diagnosis"] = {"status": "triggered"}
+        except Exception:
+            # 落库已提交，诊断失败不回滚保存结果，仅如实上报，页面可重试
+            db.rollback()
+            result["diagnosis"] = {"status": "failed"}
     return result
 
 

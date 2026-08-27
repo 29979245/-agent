@@ -7,6 +7,7 @@ doc_analysis 同步调用 + 学号/姓名正则提取（8-11 位学号、unknown
 from __future__ import annotations
 
 import base64
+import json
 import re
 from pathlib import Path
 
@@ -79,7 +80,8 @@ class BaiduOCREngine:
         try:
             token = await get_access_token(http=self._http, now=self._now)
             lines = await self._doc_analysis(token, document.path)
-        except (BaiduTokenError, httpx.HTTPError) as e:
+        # OSError（文件缺失）保持硬失败：调度器按 failed 记录供重试，不降级掩盖问题
+        except (BaiduTokenError, httpx.HTTPError, json.JSONDecodeError) as e:
             raise BaiduOCRCallError(f"百度 OCR 调用失败: {e}") from e
 
         student_no, student_name = _extract_student_info(lines)

@@ -712,6 +712,92 @@ def test_grading_save_exam_binding_mismatch_409(ocr_client):
     assert r.json()["error_code"] == "EXAM_BINDING_MISMATCH"
 
 
+def test_grading_save_roster_scoped_to_exam_class(ocr_client):
+    """花名册限定（F5）：同号学生跨班，只落本场考试班级的学生，不命中他班同名同学号。"""
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    _, cls_a = _org(db, school)
+    _, cls_b = _org(db, school)
+    _student(db, cls_a, "张三", student_no="2023001234")  # 他班同名同学号
+    target = _student(db, cls_b, "张三", student_no="2023001234")  # 本场考试班
+    exam = _exam(db, answers=("A", "B"), cls=cls_b)
+    s = _session(db)
+    _task(db, s, OCRTaskStatus.done, result=_done_result())
+    db.commit()
+    client.post("/api/grading/run", json={"batch_id": s.id, "exam_id": exam.id}, headers=_auth(acc))
+    r = client.post(
+        "/api/grading/save", json={"batch_id": s.id, "exam_id": exam.id}, headers=_auth(acc)
+    )
+    assert r.status_code == 200
+    assert r.json()["saved"] == 1
+    answers = db.query(StudentAnswer).all()
+    assert answers and {a.student_id for a in answers} == {target.id}  # 命中本场班，而非他班
+
+
+def test_grading_save_zero_answer_registered_marks_needs_review(ocr_client):
+    """注册学生零写入行（题号全不匹配）→ needs_review 标记，勿静默消失（F7）。"""
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    _, cls = _org(db, school)
+    _student(db, cls, "张三", student_no="2023001234")
+    exam = _exam(db, answers=("A", "B"), cls=cls)
+    s = _session(db)
+    _task(
+        db,
+        s,
+        OCRTaskStatus.done,
+        result={"student_no": "2023001234", "student_name": "张三",
+                "answers": [{"question_no": 99, "answer": "A"}]},
+    )
+    db.commit()
+    client.post("/api/grading/run", json={"batch_id": s.id, "exam_id": exam.id}, headers=_auth(acc))
+    r = client.post(
+        "/api/grading/save", json={"batch_id": s.id, "exam_id": exam.id}, headers=_auth(acc)
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["saved"] == 0
+    assert body["needs_review"] == 1
+    assert body["skipped"] == 0
+    assert db.query(StudentAnswer).count() == 0  # 零写入行不落库，但已显式标记复核
+
+
+def test_grading_save_llm_diagnosis_failure_does_not_500(ocr_client):
+    """同步 LLM 诊断异常不回滚保存结果、不 500，如实上报 diagnosis=failed（F6）。"""
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    _, cls = _org(db, school)
+    _student(db, cls, "张三", student_no="2023001234")
+    exam = _exam(db, answers=("A", "B"), cls=cls)
+    s = _session(db)
+    _task(
+        db,
+        s,
+        OCRTaskStatus.done,
+        result={"student_no": "2023001234", "student_name": "张三",
+                "answers": [{"question_no": 1, "answer": "C"}, {"question_no": 2, "answer": "B"}]},
+    )
+    db.commit()
+
+    class _BoomDiag:
+        def complete(self, messages):
+            raise RuntimeError("诊断服务瞬断")
+
+    app.dependency_overrides[get_diagnosis_client] = lambda: _BoomDiag()
+    client.post("/api/grading/run", json={"batch_id": s.id, "exam_id": exam.id}, headers=_auth(acc))
+    r = client.post(
+        "/api/grading/save", json={"batch_id": s.id, "exam_id": exam.id}, headers=_auth(acc)
+    )
+    assert r.status_code == 200
+    assert r.json()["diagnosis"] == {"status": "failed"}
+    # 保存结果未回滚，批次终态 done
+    assert db.query(StudentAnswer).count() == 2
+    assert db.get(UploadSession, s.id).status == UploadSessionStatus.done
+
+
 def test_batch_upload_mixed_rollback_removes_files(ocr_client):
     """批量中任一文件校验失败：回滚批次并清理已落盘文件，无孤儿文件。"""
     client, db, _ = ocr_client

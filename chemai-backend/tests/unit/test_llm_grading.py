@@ -122,6 +122,15 @@ def test_parse_subjective_result_success():
     assert parsed == {"is_correct": True, "review_needed": False, "reason": "要点齐全"}
 
 
+def test_parse_subjective_result_string_boolean():
+    """LLM 返回字符串布尔（"false"）→ 解析为 False，避免 bool("false")==True 误判对。"""
+    parsed = parse_subjective_result(
+        '{"is_correct": "false", "review_needed": "true", "reason": "x"}'
+    )
+    assert parsed["is_correct"] is False
+    assert parsed["review_needed"] is True
+
+
 def test_parse_subjective_result_fenced_json():
     parsed = parse_subjective_result(
         '```json\n{"is_correct": false, "review_needed": true, "reason": "漏写"}'

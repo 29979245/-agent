@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
+import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import (
@@ -22,6 +23,7 @@ from app.core.exceptions import (
 )
 from app.db.models import (
     Class,
+    ExamRecord,
     Grade,
     Question,
     Student,
@@ -100,7 +102,7 @@ def create_batch(db, files, upload_dir: str, school_id: int | None = None):
             db.add(task)
             db.flush()
             task_ids.append(task.id)
-    except APIException:
+    except Exception:
         db.rollback()
         for p in written:
             Path(p).unlink(missing_ok=True)
@@ -278,10 +280,17 @@ def run_grading(
 def _student_by_no(
     db, exam_id: int | None, school_id: int | None = None
 ) -> dict[str, Student]:
+    """学号 → 学生映射：优先按本场考试花名册（exam.class_id）限定，防跨班学号撞名错落库。
+
+    考试无 class_id 时回退学校作用域（教师）或全校（其余角色）。
+    """
     if exam_id is None:
         return {}
     query = db.query(Student).filter(Student.student_no != "")
-    if school_id is not None:
+    exam = db.get(ExamRecord, exam_id)
+    if exam is not None and exam.class_id is not None:
+        query = query.filter(Student.class_id == exam.class_id)
+    elif school_id is not None:
         query = (
             query.join(Class, Class.id == Student.class_id)
             .join(Grade, Grade.id == Class.grade_id)
@@ -333,7 +342,7 @@ def save_grading_results(
         )
     q_by_pos = questions if questions is not None else questions_by_position(db, effective_exam_id)
     students_by_no = _student_by_no(db, effective_exam_id, school_id)
-    saved = skipped = submissions = 0
+    saved = skipped = submissions = needs_review = 0
     for task in tasks:
         result = task.result or {}
         grading = result.get("grading")
@@ -360,6 +369,8 @@ def save_grading_results(
                 rows += 1
             if rows > 0:
                 saved += 1  # 仅实际写入 ≥1 行才计入（避免 q_by_pos 为空时虚增触发诊断）
+            else:
+                needs_review += 1  # 注册学生但零写入行（空白卡/题号全不匹配）→ 人工复核，勿静默消失
         else:
             items = grading.get("items", [])
             db.add(
@@ -371,13 +382,28 @@ def save_grading_results(
                 )
             )
             submissions += 1
-    session.status, session.version = advance_to(
+    # 原子 CAS：状态推进为单条 UPDATE（WHERE 携带当前状态），并发双重提交只有一个赢家。
+    # 比 read-check-write 更稳：SQL 原子比较，避免两请求同时读到 grading 双双通过、重复落库。
+    # （StudentAnswer 允许跨流程重复作答行，不能加全局唯一约束；CAS 即充分防线）
+    new_status, new_version = advance_to(
         session.status, UploadSessionStatus.done, session.version
     )
+    cas = (
+        sa.update(UploadSession)
+        .where(UploadSession.id == session.id, UploadSession.status == session.status)
+        .values(status=new_status, version=new_version)
+    )
+    if db.execute(cas).rowcount == 0:
+        db.rollback()  # 已被并发请求推进：丢弃本事务中待插入的 StudentAnswer 行
+        raise ConflictError(
+            "该批次已保存，请勿重复提交", "BATCH_ALREADY_SAVED", "刷新页面后查看已有结果"
+        )
+    session.status = new_status
+    session.version = new_version
     try:
         db.commit()
     except IntegrityError:
-        db.rollback()
+        db.rollback()  # 考试数据已变更（如题目/学生被删），避免半提交
         raise ConflictError(
             "保存失败：考试数据已变更", "SAVE_INTEGRITY_FAILED", "请核对考试状态后重试"
         ) from None
@@ -387,6 +413,7 @@ def save_grading_results(
         "saved": saved,
         "skipped": skipped,
         "submissions": submissions,
+        "needs_review": needs_review,
         "status": session.status.value,
     }
 

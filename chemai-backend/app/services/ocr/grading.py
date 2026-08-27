@@ -116,6 +116,15 @@ class SubjectiveGradingError(ValueError):
     """主观题判定响应无效（无 JSON / 解析失败）。"""
 
 
+def _to_bool(value, default: bool = False) -> bool:
+    """严格布尔解析：真布尔直通；字符串按 "true"/"false" 识别，避免 bool("false")==True。"""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() == "true"
+    return default
+
+
 def parse_subjective_result(text: str) -> dict:
     """结构化解析主观题 LLM 判定；无效响应抛 SubjectiveGradingError。"""
     raw = extract_json(text or "")
@@ -128,8 +137,8 @@ def parse_subjective_result(text: str) -> dict:
     if not isinstance(data, dict):
         raise SubjectiveGradingError("主观题判定 JSON 顶层非对象")
     return {
-        "is_correct": bool(data.get("is_correct", False)),
-        "review_needed": bool(data.get("review_needed", False)),
+        "is_correct": _to_bool(data.get("is_correct", False)),
+        "review_needed": _to_bool(data.get("review_needed", False)),
         "reason": str(data.get("reason", "")),
     }
 

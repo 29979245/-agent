@@ -247,3 +247,21 @@ async def test_router_pdf_all_fail_returns_partial(tmp_path):
         result = await extract_document(_doc(tmp_path, "sheet.pdf"), http=client, llm_client=llm)
     assert result.partial is True
     assert result.degraded is True
+
+
+@pytest.mark.asyncio
+async def test_router_baidu_bad_json_still_degrades_to_vlm(tmp_path):
+    """百度返回 200 但响应体非 JSON（代理错误页）→ JSONDecodeError 不打断降级链。"""
+
+    def handler(request: httpx.Request):
+        if "/oauth/2.0/token" in str(request.url):
+            return httpx.Response(200, json={"access_token": "tk", "expires_in": 2592000})
+        return httpx.Response(200, text="<html>proxy error</html>")
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://aip.baidubce.com"
+    ) as client:
+        llm = _FakeLLM('{"student_no":"2023005678","student_name":"李四","answers":[]}')
+        result = await extract_document(_doc(tmp_path, "ans.png"), http=client, llm_client=llm)
+    assert result.provider == "vlm"
+    assert llm.calls == 1

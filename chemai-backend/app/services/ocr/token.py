@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import json
 import time
 
 import httpx
@@ -46,7 +47,10 @@ async def _request_token(client: httpx.AsyncClient) -> dict:
         },
     )
     resp.raise_for_status()
-    data = resp.json()
+    try:
+        data = resp.json()
+    except json.JSONDecodeError as e:
+        raise BaiduTokenError(f"百度 Token 响应非 JSON: {e}") from e
     if not isinstance(data, dict) or "access_token" not in data:
         raise BaiduTokenError(f"百度 Token 响应异常: {data}")
     return data
