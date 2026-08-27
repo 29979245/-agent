@@ -18,6 +18,7 @@ from app.api.v1.auth import auth_router, parent_router
 from app.api.v1.diagnosis import diagnosis_router
 from app.api.v1.exam import classes_router, exam_router
 from app.api.v1.exam_bank import exam_bank_router
+from app.api.v1.ocr import grading_router, ocr_router
 from app.api.v1.panel import panel_router
 from app.api.v1.practice import practice_router
 from app.api.v1.report import report_router
@@ -29,6 +30,7 @@ from app.config import settings
 from app.core.exceptions import APIException
 from app.core.middleware import AuthMiddleware
 from app.services.exercise.scheduler import create_scheduler
+from app.services.ocr.scheduler import create_scheduler as create_ocr_scheduler
 from app.services.question.historical import reload_bank
 from app.services.question.vector import reload_vector
 
@@ -54,15 +56,22 @@ def startup_services(exam_bank_dir: str | None = None, chroma_dir: str | None = 
 async def lifespan(_: FastAPI):
     startup_services()
     scheduler = create_scheduler() if settings.enable_scheduler else None
+    ocr_scheduler = create_ocr_scheduler() if settings.enable_scheduler else None
     if scheduler is not None:
         scheduler.start()
         logger.info("[DailyPractice] APScheduler 已启动（每日 08:00 UTC）")
+    if ocr_scheduler is not None:
+        ocr_scheduler.start()
+        logger.info("[OCR] APScheduler 已启动（任务轮询 5s）")
     try:
         yield
     finally:
         if scheduler is not None:
             scheduler.shutdown(wait=False)
             logger.info("[DailyPractice] APScheduler 已关闭")
+        if ocr_scheduler is not None:
+            ocr_scheduler.shutdown(wait=False)
+            logger.info("[OCR] APScheduler 已关闭")
 
 
 app = FastAPI(
@@ -131,6 +140,8 @@ app.include_router(practice_router, prefix="/api/practice", tags=["practice"])
 app.include_router(review_router, prefix="/api/review", tags=["review"])
 app.include_router(warning_router, prefix="/api/warning", tags=["warning"])
 app.include_router(wrong_question_router, prefix="/api/wrong-questions", tags=["wrong-questions"])
+app.include_router(ocr_router, prefix="/api/ocr", tags=["ocr"])
+app.include_router(grading_router, prefix="/api/grading", tags=["grading"])
 app.include_router(report_router, prefix="/api/report", tags=["report"])
 app.include_router(student_router, prefix="/api/student", tags=["student"])
 
