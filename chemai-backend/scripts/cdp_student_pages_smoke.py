@@ -162,7 +162,9 @@ def main():
         ok, ex = wait_for(ws, "document.getElementById('statExer') && Number(document.getElementById('statExer').textContent) >= 1")
         check("profile 完成练习>=1", ok, f"ex={ex}")
         ok, acc = wait_for(ws, "document.getElementById('statAcc') && document.getElementById('statAcc').textContent")
-        check("profile 正确率 50%", ok and acc == "50%", f"acc={acc}")
+        # 正确率随练习作答累计而变动（学生流程脚本会作答今日练习），须与后端报告实时对账，不硬编码固定值
+        ok, synced = wait_for(ws, "(async () => { const t = localStorage.getItem('chemai_token'); const r = await (await fetch('/api/report/student/' + window.StudentApp.studentId(), {headers:{'Authorization':'Bearer ' + t}})).json(); const n = Number(r.stats.accuracy); const fmt = (n > 1 ? Math.round(n) : Math.round(n * 100)) + '%'; return document.getElementById('statAcc').textContent === fmt; })()")
+        check("profile 正确率与后端一致", ok and synced, f"acc={acc}")
         ok, bind = wait_for(ws, "document.getElementById('bindCode') && document.getElementById('bindCode').textContent")
         check("profile 绑定码 000000", ok and bind == "000000", f"bind={bind}")
 
