@@ -143,6 +143,28 @@ async def test_baidu_extract_unknown_student_info_keeps_answers(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_baidu_extract_handwritten_name_on_next_line(tmp_path):
+    """姓名独立手写框：印刷"姓名"标签与手写姓名分属两个 OCR block → 取标签下一行。"""
+    async with _baidu_client(
+        ["姓名", "张三四", "准考证 :010416377777 程代码:00567"]
+    ) as client:
+        engine = BaiduOCREngine(http=client)
+        result = await engine.extract(_doc(tmp_path, "card.png"))
+    assert result.student_name == "张三四"
+    assert result.student_no == "010416377777"  # 准考证（无"号"）标签命中
+
+
+@pytest.mark.asyncio
+async def test_baidu_extract_name_label_next_line_not_name(tmp_path):
+    """姓名标签行后不是纯汉字行（说明文字）→ 不误取，姓名保持待识别。"""
+    async with _baidu_client(["姓名", "请考生将信息填写在指定区域", "1 A"]) as client:
+        engine = BaiduOCREngine(http=client)
+        result = await engine.extract(_doc(tmp_path, "x.png"))
+    assert result.student_name == "待识别"
+    assert result.answers == [{"question_no": 1, "answer": "A"}]
+
+
+@pytest.mark.asyncio
 async def test_baidu_http_error_raises_engine_error(tmp_path):
     async with _failing_baidu_client() as client:
         engine = BaiduOCREngine(http=client)

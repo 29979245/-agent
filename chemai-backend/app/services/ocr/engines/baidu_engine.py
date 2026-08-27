@@ -23,10 +23,12 @@ from app.services.ocr.token import BaiduTokenError, get_access_token
 
 DOC_ANALYSIS_URL = "https://aip.baidubce.com/rest/2.0/ocr/v1/doc_analysis"
 
-# 学号：带标签（学号/准考证号/考生号：xxxx）优先，否则兜底裸 8-13 位数字
-_STUDENT_NO_LABEL_RE = re.compile(r"(?:学号|准考证号|考生号)\s*[:：]?\s*([0-9]{8,13})")
+# 学号：带标签（学号/准考证[号]/考生号：xxxx）优先，否则兜底裸 8-13 位数字
+_STUDENT_NO_LABEL_RE = re.compile(r"(?:学号|准考证号?|考生号)\s*[:：]?\s*([0-9]{8,13})")
 _STUDENT_NO_BARE_RE = re.compile(r"(?<!\d)([0-9]{8,13})(?!\d)")
 _NAME_RE = re.compile(r"姓名\s*[:：]?\s*([一-龥]{2,4})")
+# 姓名独立手写框：印刷"姓名"标签与手写姓名是分开的 OCR block，标签行后跟的纯 2-4 汉字行即姓名
+_NAME_STANDALONE_RE = re.compile(r"^[一-龥]{2,4}$")
 # 逐题答案："1 A" / "1.A" / "1：B" / "2×"
 _ANSWER_RE = re.compile(r"^\s*(\d{1,3})\s*[\.．、:：]?\s*([A-Ha-h]|[√×])\s*$")
 
@@ -37,13 +39,18 @@ class BaiduOCRCallError(OCREngineError):
 
 def _extract_student_info(lines: list[str]) -> tuple[str, str]:
     student_no, student_name = "unknown", "待识别"
-    for line in lines:
+    for i, line in enumerate(lines):
         m = _STUDENT_NO_LABEL_RE.search(line)
         if m:
             student_no = m.group(1)
         m = _NAME_RE.search(line)
         if m:
             student_name = m.group(1)
+        elif "姓名" in line and i + 1 < len(lines):
+            # 姓名标签行未带内联姓名：卡片姓名是独立手写框，取下一行纯 2-4 汉字
+            nxt = lines[i + 1].strip()
+            if _NAME_STANDALONE_RE.match(nxt):
+                student_name = nxt
     if student_no == "unknown":
         for line in lines:
             m = _STUDENT_NO_BARE_RE.search(line)
