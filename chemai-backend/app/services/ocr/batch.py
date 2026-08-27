@@ -33,7 +33,7 @@ from app.db.models.ocr import OCRTask
 from app.db.models.enums import OCRTaskStatus, UploadSessionStatus
 from app.services.ocr.engines.base import UNKNOWN_STUDENT_NAME, UNKNOWN_STUDENT_NO
 from app.services.ocr.grading import grade_submission
-from app.services.ocr.state_machine import advance_to
+from app.services.ocr.state_machine import TERMINAL, advance_to
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".pdf"}
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 单文件 10MB 上限（设计 10.4）
@@ -209,9 +209,13 @@ def run_grading(
     首次携带 exam_id 时绑定到批次，后续 run 用不同 exam_id → 409（防 run/save 漂移）。
     会话推进到 grading（沿主链幂等）。
     """
-    if session.status == UploadSessionStatus.done:
+    if session.status in TERMINAL:
+        if session.status == UploadSessionStatus.done:
+            raise ConflictError(
+                "该批次已保存，请勿重复批改", "BATCH_ALREADY_SAVED", "刷新页面后查看已有结果"
+            )
         raise ConflictError(
-            "该批次已保存，请勿重复批改", "BATCH_ALREADY_SAVED", "刷新页面后查看已有结果"
+            "该批次已终止，无法批改", "BATCH_TERMINAL", "已废弃或出错的批次不可再批改"
         )
     if exam_id is not None:
         if session.exam_id is not None and session.exam_id != exam_id:
@@ -301,9 +305,13 @@ def save_grading_results(
     （防先保存后批改、防重试后漏存）。exam_id 与批次绑定（run 时写入）不一致则 409。
     保存成功后的诊断触发由 API 层接线（8.1，本函数只返回 saved 计数供触发判断）。
     """
-    if session.status == UploadSessionStatus.done:
+    if session.status in TERMINAL:
+        if session.status == UploadSessionStatus.done:
+            raise ConflictError(
+                "该批次已保存，请勿重复提交", "BATCH_ALREADY_SAVED", "刷新页面后查看已有结果"
+            )
         raise ConflictError(
-            "该批次已保存，请勿重复提交", "BATCH_ALREADY_SAVED", "刷新页面后查看已有结果"
+            "该批次已终止，无法提交", "BATCH_TERMINAL", "已废弃或出错的批次不可再保存"
         )
     if exam_id is not None and session.exam_id is not None and exam_id != session.exam_id:
         raise ConflictError(

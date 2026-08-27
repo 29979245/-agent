@@ -614,6 +614,35 @@ def test_grading_double_save_conflict_409(ocr_client):
     assert db.query(StudentSubmission).count() == 1  # 幂等守卫，未重复落库
 
 
+def test_grading_run_terminal_discarded_409(ocr_client):
+    """终态守卫：discarded 批次触发批改 → 409 BATCH_TERMINAL（非仅 done）。"""
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    s = _session(db, status=UploadSessionStatus.discarded)
+    _task(db, s, OCRTaskStatus.done, result=_done_result())
+    db.commit()
+    r = client.post("/api/grading/run", json={"batch_id": s.id}, headers=_auth(acc))
+    assert r.status_code == 409
+    assert r.json()["error_code"] == "BATCH_TERMINAL"
+    db.refresh(s)
+    assert s.status == UploadSessionStatus.discarded  # 终态未被推进
+
+
+def test_grading_save_terminal_error_409(ocr_client):
+    """终态守卫：error 批次保存 → 409 BATCH_TERMINAL，不落库。"""
+    client, db, _ = ocr_client
+    school = _school(db)
+    _, acc = _teacher(db, school)
+    s = _session(db, status=UploadSessionStatus.error)
+    _task(db, s, OCRTaskStatus.done, result={**_done_result(), "grading": {"source": "bank", "items": []}})
+    db.commit()
+    r = client.post("/api/grading/save", json={"batch_id": s.id}, headers=_auth(acc))
+    assert r.status_code == 409
+    assert r.json()["error_code"] == "BATCH_TERMINAL"
+    assert db.query(StudentSubmission).count() == 0
+
+
 def test_grading_save_before_run_400(ocr_client):
     client, db, _ = ocr_client
     school = _school(db)
