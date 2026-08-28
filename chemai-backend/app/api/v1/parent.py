@@ -3,10 +3,6 @@
 §1 认证+绑定：bind / unbind / children。周报/报告/通知端点见 §2。
 / login 留在 auth.py 的 parent_router 不动（破坏面最小）。
 """
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
-
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
