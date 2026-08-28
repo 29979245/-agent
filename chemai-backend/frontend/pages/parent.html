@@ -633,10 +633,12 @@
           state.aiLoaded[sid] = false;
           btn.disabled = false;
           btn.textContent = 'AI 解读';
-          btn.addEventListener('click', function onRetry() {
-            btn.removeEventListener('click', onRetry);
+          // 重试入口放在错误文本上而非 aiReadBtn：按钮是折叠开关（toggleAiDetail），
+          // 叠加监听会导致点重试先折叠面板、重生成在关闭面板内不可见
+          text.onclick = function onRetry() {
+            text.onclick = null;
             ensureAiSummary();
-          });
+          };
         });
       }
 
