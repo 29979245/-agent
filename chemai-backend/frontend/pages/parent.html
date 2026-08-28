@@ -537,9 +537,17 @@
         setTab('overview');
       }
       function showError(text) {
-        document.querySelectorAll('.panel').forEach(function (p) {
-          p.innerHTML = '<div class="error-box">' + (text || '加载失败') +
-            '<br><button class="retry-btn" onclick="window.location.reload()">重新加载</button></div>';
+        // 只写入动态子容器；不清空父面板，避免销毁 #message 的 #msgList 等静态节点
+        ['statWeekly', 'statAccuracy', 'statRecent', 'rpPractices', 'rpAnswers', 'rpAccuracy', 'rpStyle']
+          .forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.textContent = '—';
+          });
+        var msg = '<div class="error-box">' + (text || '加载失败') +
+          '<br><button class="retry-btn" onclick="window.location.reload()">重新加载</button></div>';
+        ['statWeak', 'overviewTimeline', 'rpMastery'].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) el.innerHTML = msg;
         });
       }
 
