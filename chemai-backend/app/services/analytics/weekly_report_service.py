@@ -12,10 +12,11 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Question, Student
 from app.services.analytics.report_service import (
-    _exam_answers,
-    _practice_records,
-    _week_start,
+    week_answers,
+    week_start,
+    week_stats,
 )
+from app.services.diagnosis.aggregation import normalize_profile
 from app.services.diagnosis.llm_diagnosis import (
     DiagnosisLLMError,
     FallbackDiagnosisLLMClient,
@@ -79,20 +80,55 @@ def build_weekly_report_system_prompt() -> str:
     )
 
 
-def _collect_weekly_data(db: Session, student: Student, today: datetime.date) -> dict:
-    """本周练习数据聚合：次数/题数/正确数/正确率/薄弱知识点。"""
-    monday = _week_start(today)
-    sunday = monday + datetime.timedelta(days=6)
-    answers = []
-    exams = 0
-    for exam in _practice_records(db, student.id):
-        if monday <= exam.exam_date <= today:
-            exams += 1
-            answers.extend(_exam_answers(db, student.id, exam))
-    total = len(answers)
-    correct = sum(1 for a in answers if a.is_correct)
-    accuracy = round(correct / total * 100, 1) if total else 0.0
+_BARRIER_LABELS = {"concept": "概念理解", "reading": "审题障碍", "expression": "表述障碍"}
+_BARRIER_STYLE = {
+    "concept": "概念理解还不够扎实，需要多从原理层面理解",
+    "reading": "读题时偶尔会漏看关键条件，审题习惯需要加强",
+    "expression": "思路通常是对的，化学用语和规范书写需要加强",
+}
 
+
+def _dominant_barrier(profile: dict) -> str:
+    """障碍画像占比最高的障碍键；全零/异常默认 concept。"""
+    norm = normalize_profile(profile)
+    return max(norm, key=norm.get) if any(v > 0 for v in norm.values()) else "concept"
+
+
+def _barrier_distribution(profile: dict) -> str:
+    """障碍类型分布文本，如「概念理解 70%、审题障碍 20%」；无画像返回「暂无细分数据」。"""
+    norm = normalize_profile(profile)
+    parts = [f"{_BARRIER_LABELS[k]} {int(round(v * 100))}%" for k, v in norm.items() if v > 0]
+    return "、".join(parts) if parts else "暂无细分数据"
+
+
+def _learning_characteristics(barrier: str, weekly_accuracy: float) -> str:
+    """由主导障碍 + 本周正确率拼出的学习特点描述。"""
+    base = _BARRIER_STYLE.get(barrier, _BARRIER_STYLE["concept"])
+    if weekly_accuracy >= 0.8:
+        return f"本周正确率不错，{base}"
+    return base
+
+
+def _count_change(this: int, last: int) -> str:
+    return f"{this - last:+d}（上周 {last} 次，本周 {this} 次）"
+
+
+def _accuracy_change(this: float, last: float) -> str:
+    this_pct = int(round(this * 100))
+    last_pct = int(round(last * 100))
+    return f"{this_pct - last_pct:+d}%（上周 {last_pct}%，本周 {this_pct}%）"
+
+
+def _collect_weekly_data(db: Session, student: Student, today: datetime.date) -> dict:
+    """本周练习数据聚合：次数/题数/正确数/正确率/薄弱知识点/障碍分布/周对比。"""
+    monday = week_start(today)
+    sunday = monday + datetime.timedelta(days=6)
+    this = week_stats(db, student.id, monday, today)
+    last = week_stats(
+        db, student.id, monday - datetime.timedelta(days=7), monday - datetime.timedelta(days=1)
+    )
+
+    answers = week_answers(db, student.id, monday, today)
     # 薄弱知识点：按错误频率排序 Top 3
     err_count: dict[str, int] = {}
     qids = {a.question_id for a in answers}
@@ -107,20 +143,23 @@ def _collect_weekly_data(db: Session, student: Student, today: datetime.date) ->
             err_count[kp] = err_count.get(kp, 0) + 1
     weak = [f"{kp}(错{n}次)" for kp, n in sorted(err_count.items(), key=lambda kv: -kv[1])[:3]]
 
+    profile = student.barrier_profile or {}
+    barrier = _dominant_barrier(profile)
+
     return {
         "student_name": student.name,
         "week_start": monday.isoformat(),
         "week_end": sunday.isoformat(),
-        "practice_count": exams,
-        "total_questions": total,
-        "correct_count": correct,
-        "accuracy_percent": accuracy,
+        "practice_count": this["practice_count"],
+        "total_questions": this["total_questions"],
+        "correct_count": this["correct_count"],
+        "accuracy_percent": round(this["accuracy"] * 100, 1),
         "weak_knowledge_points_list": ", ".join(weak) if weak else "无",
-        "learning_characteristics": "基于学生近期练习数据归纳",
-        "barrier_distribution": "暂不细分",
-        "practice_count_change": "无上周对比数据",
-        "accuracy_change": "无上周对比数据",
-        "has_data": total > 0,
+        "learning_characteristics": _learning_characteristics(barrier, this["accuracy"]),
+        "barrier_distribution": _barrier_distribution(profile),
+        "practice_count_change": _count_change(this["practice_count"], last["practice_count"]),
+        "accuracy_change": _accuracy_change(this["accuracy"], last["accuracy"]),
+        "has_data": this["total_questions"] > 0,
     }
 
 
@@ -228,7 +267,7 @@ def get_or_generate_weekly_report(
     """
     student = db.get(Student, student_id)
     today = today or datetime.date.today()
-    monday = _week_start(today)
+    monday = week_start(today)
     if student is not None and student.weekly_report_week == monday and student.weekly_report:
         return dict(student.weekly_report)
     report = generate_weekly_report(db, student_id, today=today, client=client)

@@ -1,8 +1,8 @@
 """家长视角报告聚合（design.md D3）。
 
 不复用 build_student_report 的返回结构——它含家长不可见字段（bind_code、teacher_comment）。
-本服务调用 report_service 同模块私有 helper（_practice_records/_accuracy/_streak_days/
-_build_knowledge_points/_exam_answers/_week_start）组装家长形态：
+本服务复用 report_service 的公开周数据收集器（practice_answers/week_answers/week_stats/
+week_start/accuracy/streak_days/build_knowledge_points）组装家长形态：
 4 统计卡 + 知识掌握概览 + 通俗学习特点 + 本周动态时间线。响应显式不含绑定码/排名/教师评语。
 """
 import datetime
@@ -12,25 +12,26 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import NotFoundError
 from app.db.models import Question
 from app.services.analytics.report_service import (
-    _accuracy,
-    _build_knowledge_points,
-    _exam_answers,
-    _practice_records,
-    _streak_days,
-    _week_start,
+    accuracy,
+    build_knowledge_points,
+    practice_answers,
+    streak_days,
+    week_answers,
+    week_start,
+    week_stats,
 )
 from app.services.question.serializers import split_knowledge_points
 
 
-def _learning_style(weekly_accuracy: float, streak_days: int) -> str:
+def _learning_style(weekly_accuracy: float, streak: int) -> str:
     """由数据推导的通俗学习特点（非 LLM，静态模板）。"""
-    if streak_days >= 3 and weekly_accuracy >= 0.8:
+    if streak >= 3 and weekly_accuracy >= 0.8:
         return "最近一直在坚持练习，正确率也很高，状态很好"
-    if streak_days >= 3:
+    if streak >= 3:
         return "连续学习习惯已养成，正确率还有提升空间"
     if weekly_accuracy >= 0.8:
         return "本周练习正确率高，但学习连续性可以加强"
-    if streak_days == 0:
+    if streak == 0:
         return "本周还没有完成练习，可以安排些时间开始"
     return "本周有练习记录，继续保持节奏，正确率会逐步提升"
 
@@ -50,7 +51,7 @@ def _build_timeline(weekly_answers: list, today: datetime.date) -> list[dict]:
             "date": day.isoformat(),
             "correct": cell[0],
             "total": cell[1],
-            "accuracy": _accuracy(cell[0], cell[1]),
+            "accuracy": accuracy(cell[0], cell[1]),
         }
         for day, cell in sorted(by_day.items())
     ]
@@ -66,18 +67,11 @@ def build_parent_report(
     if student is None:
         raise NotFoundError(detail="学生不存在", error_code="STUDENT_NOT_FOUND")
     today = today or datetime.date.today()
-    monday = _week_start(today)
+    monday = week_start(today)
 
-    all_answers: list = []
-    weekly_answers: list = []
-    completed_ids: set[int] = set()
-    for exam in _practice_records(db, student_id):
-        answers = _exam_answers(db, student_id, exam)
-        all_answers.extend(answers)
-        if answers:
-            completed_ids.add(exam.id)
-        if monday <= exam.exam_date <= today:
-            weekly_answers.extend(answers)
+    all_answers, completed_ids = practice_answers(db, student_id)
+    weekly_answers = week_answers(db, student_id, monday, today)
+    weekly = week_stats(db, student_id, monday, today)
 
     weekly_qids = {a.question_id for a in weekly_answers}
     kp_map = {
@@ -85,13 +79,9 @@ def build_parent_report(
         for q in db.query(Question).filter(Question.id.in_(weekly_qids)).all()
     }
 
-    weekly_total = len(weekly_answers)
-    weekly_correct = sum(1 for a in weekly_answers if a.is_correct)
-    weekly_exam_ids = {a.exam_id for a in weekly_answers}
     all_total = len(all_answers)
     all_correct = sum(1 for a in all_answers if a.is_correct)
-    weekly_accuracy = _accuracy(weekly_correct, weekly_total)
-    streak_days = _streak_days(all_answers, today)
+    streak = streak_days(all_answers, today)
 
     return {
         "student": {
@@ -100,14 +90,14 @@ def build_parent_report(
             "class_name": student.class_.name if student.class_ else "",
         },
         "stats": {
-            "weekly_exercises": len(weekly_exam_ids),
-            "weekly_accuracy": weekly_accuracy,
-            "streak_days": streak_days,
+            "weekly_exercises": weekly["practice_count"],
+            "weekly_accuracy": weekly["accuracy"],
+            "streak_days": streak,
             "total_practices": len(completed_ids),
             "total_answers": all_total,
-            "overall_accuracy": _accuracy(all_correct, all_total),
+            "overall_accuracy": accuracy(all_correct, all_total),
         },
-        "knowledge_points": _build_knowledge_points(weekly_answers, kp_map),
-        "learning_style": _learning_style(weekly_accuracy, streak_days),
+        "knowledge_points": build_knowledge_points(weekly_answers, kp_map),
+        "learning_style": _learning_style(weekly["accuracy"], streak),
         "timeline": _build_timeline(weekly_answers, today),
     }

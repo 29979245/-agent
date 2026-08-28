@@ -2,6 +2,8 @@
 
 聚合策略：复用 practice.py 的练习口径（ExamRecord type=practice 排除 training/variant），
 单学生作答量级小，全内存聚合不缓存；统计口径见 change student-supplement-apis design.md D5。
+本模块同时提供家长端/周报共用的公开周窗口收集器（week_start/week_answers/week_stats/practice_answers），
+替代各消费方重复实现的周聚合。
 """
 import datetime
 from collections import defaultdict
@@ -29,7 +31,7 @@ def _practice_records(db: Session, student_id: int) -> list[ExamRecord]:
     return [r for r in rows if (r.question_stats or {}).get("mode") not in _NON_PRACTICE_MODES]
 
 
-def _week_start(day: datetime.date) -> datetime.date:
+def week_start(day: datetime.date) -> datetime.date:
     """ISO 周一为一周起点（本周一 00:00）。"""
     return day - datetime.timedelta(days=day.weekday())
 
@@ -47,11 +49,49 @@ def _exam_answers(db: Session, student_id: int, exam: ExamRecord) -> list[Studen
     )
 
 
-def _accuracy(correct: int, total: int) -> float:
+def accuracy(correct: int, total: int) -> float:
     return round(correct / total, 4) if total else 0.0
 
 
-def _streak_days(answers: list[StudentAnswer], today: datetime.date) -> int:
+def practice_answers(db: Session, student_id: int) -> tuple[list[StudentAnswer], set[int]]:
+    """全部练习作答 + 有作答的练习 id 集合（连续天数/累计统计用）。"""
+    answers: list[StudentAnswer] = []
+    completed_ids: set[int] = set()
+    for exam in _practice_records(db, student_id):
+        exam_answers = _exam_answers(db, student_id, exam)
+        answers.extend(exam_answers)
+        if exam_answers:
+            completed_ids.add(exam.id)
+    return answers, completed_ids
+
+
+def week_answers(
+    db: Session, student_id: int, monday: datetime.date, sunday: datetime.date
+) -> list[StudentAnswer]:
+    """[monday, sunday] 窗口内的练习作答（含上界），家长端/周报共用。"""
+    answers: list[StudentAnswer] = []
+    for exam in _practice_records(db, student_id):
+        if monday <= exam.exam_date <= sunday:
+            answers.extend(_exam_answers(db, student_id, exam))
+    return answers
+
+
+def week_stats(
+    db: Session, student_id: int, monday: datetime.date, sunday: datetime.date
+) -> dict:
+    """窗口内完成练习次数/题数/正确数/正确率（0-1）。"""
+    answers = week_answers(db, student_id, monday, sunday)
+    total = len(answers)
+    correct = sum(1 for a in answers if a.is_correct)
+    return {
+        "practice_count": len({a.exam_id for a in answers}),
+        "total_questions": total,
+        "correct_count": correct,
+        "accuracy": accuracy(correct, total),
+    }
+
+
+def streak_days(answers: list[StudentAnswer], today: datetime.date) -> int:
     """连续有作答的天数：去重日期，从今天向前数连续。"""
     answer_dates = {a.answered_at.date() for a in answers if a.answered_at}
     streak = 0
@@ -62,7 +102,7 @@ def _streak_days(answers: list[StudentAnswer], today: datetime.date) -> int:
     return streak
 
 
-def _build_knowledge_points(
+def build_knowledge_points(
     answers: list[StudentAnswer], kp_map: dict[int, list[str]]
 ) -> list[dict]:
     """按知识点聚合正确率：mastery = 答对/总作答（一题多知识点分别计）。"""
@@ -91,20 +131,10 @@ def build_student_report(
         raise NotFoundError(detail="学生不存在", error_code="STUDENT_NOT_FOUND")
     today = today or datetime.date.today()
 
-    all_answers: list[StudentAnswer] = []
-    weekly_exams: list[ExamRecord] = []
-    weekly_answers: list[StudentAnswer] = []
-    completed_ids: set[int] = set()
-    monday = _week_start(today)
-
-    for exam in _practice_records(db, student_id):
-        answers = _exam_answers(db, student_id, exam)
-        all_answers.extend(answers)
-        if answers:
-            completed_ids.add(exam.id)
-        if monday <= exam.exam_date <= today:
-            weekly_exams.append(exam)
-            weekly_answers.extend(answers)
+    all_answers, completed_ids = practice_answers(db, student_id)
+    monday = week_start(today)
+    weekly = week_stats(db, student_id, monday, today)
+    weekly_answers = week_answers(db, student_id, monday, today)
 
     weekly_qids = {a.question_id for a in weekly_answers}
     kp_map = {
@@ -112,8 +142,6 @@ def build_student_report(
         for q in db.query(Question).filter(Question.id.in_(weekly_qids)).all()
     }
 
-    weekly_total = len(weekly_answers)
-    weekly_correct = sum(1 for a in weekly_answers if a.is_correct)
     all_total = len(all_answers)
     all_correct = sum(1 for a in all_answers if a.is_correct)
 
@@ -126,15 +154,15 @@ def build_student_report(
         },
         "stats": {
             "completed_exercises": len(completed_ids),
-            "accuracy": _accuracy(all_correct, all_total),
-            "streak_days": _streak_days(all_answers, today),
+            "accuracy": accuracy(all_correct, all_total),
+            "streak_days": streak_days(all_answers, today),
         },
         "weekly": {
             "week_label": _iso_week_label(today),
-            "exercises": sum(1 for e in weekly_exams if e.id in completed_ids),
-            "accuracy": _accuracy(weekly_correct, weekly_total),
+            "exercises": weekly["practice_count"],
+            "accuracy": weekly["accuracy"],
             "duration_hours": 0.0,  # 无时长数据源（设计 D5 占位）
-            "knowledge_points": _build_knowledge_points(weekly_answers, kp_map),
+            "knowledge_points": build_knowledge_points(weekly_answers, kp_map),
             "teacher_comment": None,  # LLM 评语属 doc 57 weekly_report，本轮固定 null
         },
         "learning_plan": student.learning_plan or None,
