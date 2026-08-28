@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI助教 · ChemAI 智辅化学</title>
+  <link rel="stylesheet" href="css/student.css" />
+  <link rel="stylesheet" href="vendor/katex.min.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- 1) 顶部标题栏 -->
+    <header class="topbar">
+      <button class="icon-btn" id="menuBtn" aria-label="打开菜单">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <div class="title">ChemAI 助教</div>
+      <button class="icon-btn" id="newChatBtn" aria-label="新对话">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      </button>
+    </header>
+
+    <!-- 2) 侧边抽屉 -->
+    <aside class="drawer" id="drawer" aria-label="侧边栏">
+      <div class="drawer-student">
+        <div class="drawer-avatar" aria-hidden="true">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4.4 0-8 2.7-8 6v2h16v-2c0-3.3-3.6-6-8-6z"/></svg>
+        </div>
+        <div>
+          <div class="drawer-name" id="drawerName"></div>
+          <div class="drawer-class" id="drawerClass"></div>
+        </div>
+      </div>
+      <div class="drawer-divider"></div>
+      <div class="drawer-label">历史对话</div>
+      <div class="drawer-history" id="historyList">
+        <div class="history-item" data-ph="1">
+          <div class="history-title">氧化还原反应的电子转移</div>
+          <div class="history-time">今天 14:32</div>
+        </div>
+        <div class="history-item" data-ph="1">
+          <div class="history-title">配平 KMnO₄ 与 HCl 反应</div>
+          <div class="history-time">今天 09:15</div>
+        </div>
+        <div class="history-item" data-ph="1">
+          <div class="history-title">物质的量与摩尔质量计算</div>
+          <div class="history-time">昨天 20:48</div>
+        </div>
+        <div class="history-item" data-ph="1">
+          <div class="history-title">离子共存问题错题回顾</div>
+          <div class="history-time">昨天 16:03</div>
+        </div>
+      </div>
+      <div class="drawer-divider"></div>
+      <div class="drawer-logout" id="logoutBtn">退出登录</div>
+    </aside>
+    <div class="drawer-mask" id="drawerMask"></div>
+
+    <!-- 3) 对话区 -->
+    <main class="chat-shell" id="chat"></main>
+
+    <!-- 4) 快捷芯片 + 输入区（固定在 tabbar 上方） -->
+    <div class="chat-input-wrap">
+      <div class="chip-row" id="chipRow" aria-label="快捷指令"></div>
+      <div class="chat-input-bar">
+        <button class="icon-btn attach" id="attachBtn" aria-label="添加附件">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3 3 0 0 1 4.24 4.24l-9.2 9.19a1 1 0 0 1-1.41-1.41l8.49-8.49"/></svg>
+        </button>
+        <input type="text" id="chatInput" placeholder="输入你的化学问题…" aria-label="消息输入框" autocomplete="off" />
+        <button class="send-btn" id="sendBtn" aria-label="发送">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- 5) 底部 TabBar -->
+    <nav class="tabbar" id="tabbar"></nav>
+  </div>
+
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/katex.min.js"></script>
+  <script src="vendor/mhchem.min.js"></script>
+  <script src="vendor/auto-render.min.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/katex.js"></script>
+  <script src="js/student-common.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      const SA = window.StudentApp;
+      const A = window.ChemAPI;
+      const $ = (id) => document.getElementById(id);
+
+      if (!SA.requireStudent()) return;
+
+      const me = window.ChemAuth.getUser ? window.ChemAuth.getUser() : null;
+      const chat = $('chat');
+      const input = $('chatInput');
+
+      const PHASE_LABEL = {
+        thinking: '分析中', executing: '执行中', planning: '规划中',
+        reply: '回复中', awaiting_approval: '等待确认',
+      };
+      const CHIPS = ['帮我讲解这个知识点', '配平这个方程式', '做几道练习题', '查看我的错题', '总结今天学习'];
+
+      let threadId = 'conv_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+      let busy = false;
+      let curAiText = '';
+      let lastText = '';
+      let currentChat = null;
+
+      SA.renderTabbar('ai-tutor');
+
+      // 侧边抽屉
+      const drawer = $('drawer');
+      const mask = $('drawerMask');
+      function openDrawer() { mask.classList.add('show'); drawer.classList.add('open'); }
+      function closeDrawer() { drawer.classList.remove('open'); mask.classList.remove('show'); }
+      $('menuBtn').addEventListener('click', () => {
+        if (drawer.classList.contains('open')) closeDrawer(); else openDrawer();
+      });
+      mask.addEventListener('click', closeDrawer);
+      $('logoutBtn').addEventListener('click', () => {
+        window.ChemAuth.logout();
+        location.href = 'student-login.html';
+      });
+      $('historyList').addEventListener('click', () => {
+        closeDrawer();
+        SA.toast('对话记录即将上线');
+      });
+
+      // 快捷芯片
+      const chipRow = $('chipRow');
+      CHIPS.forEach((t) => {
+        const c = document.createElement('button');
+        c.className = 'chip-btn';
+        c.textContent = t;
+        c.addEventListener('click', () => { input.value = t; input.focus(); });
+        chipRow.appendChild(c);
+      });
+
+      $('attachBtn').addEventListener('click', () => SA.toast('拍照上传即将上线'));
+      $('newChatBtn').addEventListener('click', newChat);
+
+      // 会话初始态
+      function scrollChat() { chat.scrollTop = chat.scrollHeight; }
+      function addWelcome() {
+        const w = document.createElement('div');
+        w.className = 'bubble ai';
+        w.textContent = '你好，' + ((me && me.name) || '同学') + '！我是 ChemAI 助教。今天想复习哪个知识点？';
+        chat.appendChild(w);
+      }
+      function setStage(p) {
+        clearStage();
+        const label = PHASE_LABEL[p] || '';
+        if (!label) return;
+        const tag = document.createElement('div');
+        tag.className = 'stage-tag';
+        tag.id = 'stageTag';
+        tag.innerHTML = '<span class="dot"></span>' + SA.escapeHtml(label);
+        // 阶段标签插在当前 AI 气泡上方（design D7），随 phase 更新保持原位
+        const ais = chat.querySelectorAll('.bubble.ai');
+        const lastAi = ais[ais.length - 1];
+        if (lastAi) chat.insertBefore(tag, lastAi);
+        else chat.appendChild(tag);
+        scrollChat();
+      }
+      function clearStage() {
+        const t = $('stageTag');
+        if (t) t.remove();
+      }
+
+      function appendUser(text) {
+        const div = document.createElement('div');
+        div.className = 'bubble user';
+        div.textContent = text;
+        chat.appendChild(div);
+        scrollChat();
+      }
+      function newAiBubble() {
+        const div = document.createElement('div');
+        div.className = 'bubble ai';
+        chat.appendChild(div);
+        scrollChat();
+        return div;
+      }
+      function renderAi(el) { el.innerHTML = SA.renderMarkdown(curAiText); }
+
+      function buildToolCard(d, statusText) {
+        const name = d.tool || d.name || '工具';
+        const div = document.createElement('div');
+        div.className = 'tool-card';
+        div.dataset.key = String(d.tool_call_id || d.id || name);
+        const head = document.createElement('div');
+        head.className = 'tool-head';
+        head.innerHTML = '<span class="tool-name">⚙ ' + SA.escapeHtml(name) + '</span><span class="tool-chevron">▾</span>';
+        head.addEventListener('click', () => toggleToolCard(div));
+        const status = document.createElement('div');
+        status.className = 'tool-status';
+        status.textContent = statusText;
+        const body = document.createElement('div');
+        body.className = 'tool-body';
+        div.appendChild(head);
+        div.appendChild(status);
+        div.appendChild(body);
+        chat.appendChild(div);
+        scrollChat();
+        return div;
+      }
+      function toggleToolCard(card) {
+        const body = card.querySelector('.tool-body');
+        const chev = card.querySelector('.tool-chevron');
+        const collapsed = card.classList.toggle('collapsed');
+        if (body) body.style.display = collapsed ? 'none' : 'block';
+        if (chev) chev.textContent = collapsed ? '▸' : '▾';
+      }
+      function addToolCard(d) {
+        buildToolCard(d, '执行中…');
+      }
+      function updateToolCard(d) {
+        const key = String(d.tool_call_id || d.id || (d.tool || d.name || ''));
+        let target = Array.prototype.find.call(chat.querySelectorAll('.tool-card'), (c) => c.dataset.key === key);
+        if (!target) target = buildToolCard(d, '完成');
+        target.classList.add(d.success === false ? 'fail' : 'ok');
+        const st = target.querySelector('.tool-status');
+        if (st) st.textContent = d.success === false ? '失败' : '完成';
+        const body = target.querySelector('.tool-body');
+        if (d.result && body) {
+          body.innerHTML = SA.renderMarkdown(String(d.result));  // 经 XSS 净化
+          SA.renderChem(body);
+          target.classList.remove('collapsed');  // 结果到达默认展开
+          body.style.display = 'block';
+          scrollChat();
+        }
+      }
+
+      function endReply(aiEl, err) {
+        clearStage();
+        if (err) {
+          let msg;
+          if (err.degradable) msg = 'AI 助教即将上线，敬请期待。';
+          else if (err.kind === 'network') msg = '连接失败';
+          else if (err.kind === 'stream_error' || err.kind === 'http') msg = '对话出错，请重试';
+          else msg = '连接中断';
+          aiEl.innerHTML = '<div class="degrade-card">' + msg + '<br>' +
+            '<span class="retry">点击重试</span></div>';
+          const r = aiEl.querySelector('.retry');
+          if (r) r.addEventListener('click', () => { if (lastText) send(lastText); });
+        } else {
+          SA.renderChem(aiEl);
+        }
+        busy = false;
+        $('sendBtn').disabled = false;
+        scrollChat();
+      }
+
+      function send(text) {
+        text = (text || '').trim();
+        if (!text || busy) return;
+        busy = true;
+        lastText = text;
+        $('sendBtn').disabled = true;
+        input.value = '';
+        appendUser(text);
+        curAiText = '';
+        setStage('thinking');
+        const aiEl = newAiBubble();
+        currentChat = A.agentChatStream(
+          { message: text, thread_id: threadId, context: { user_id: (me && me.user_id) || null, role: 'student', persona: 'student' } },
+          {
+            onPhase: (p) => setStage(p),
+            onText: (t) => { curAiText += t; renderAi(aiEl); },
+            onToolCall: (d) => addToolCard(d),
+            onToolResult: (d) => updateToolCard(d),
+            onDone: () => endReply(aiEl),
+            onError: (e) => endReply(aiEl, e),
+          }
+        );
+      }
+
+      function newChat() {
+        if (currentChat) currentChat.cancel();
+        busy = false;
+        curAiText = '';
+        lastText = '';
+        $('sendBtn').disabled = false;
+        threadId = 'conv_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+        chat.innerHTML = '';
+        addWelcome();
+      }
+
+      $('sendBtn').addEventListener('click', () => send(input.value));
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(input.value); });
+
+      // 初始化：姓名来自会话，班级来自报告（会话无 class_name）
+      $('drawerName').textContent = (me && me.name) || '同学';
+      A.getStudentReport(SA.studentId())
+        .then((r) => {
+          const p = (r && r.profile) || {};
+          $('drawerClass').textContent = p.class_name || ('学号 ' + (SA.studentId() || '—'));
+        })
+        .catch(() => {
+          $('drawerClass').textContent = '学号 ' + (SA.studentId() || '—');
+        });
+      addWelcome();
+      input.focus();
+    })();
+  </script>
+</body>
+</html>

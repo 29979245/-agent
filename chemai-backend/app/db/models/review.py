@@ -2,10 +2,12 @@
 
 - 复习历史以表落地（非 JSON），支撑遗忘曲线多行记录（D7/F3）。
 - 删除 ReviewTask 级联删除 ReviewHistory（D8）。
+- 三态状态机（design.md D4）：pending / overdue / done（终态）；升降级与到期时间由
+  SpacedRepetitionEngine 维护。
 """
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, ForeignKey, Integer
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -30,6 +32,12 @@ class ReviewTask(Base):
     status: Mapped[ReviewTaskStatus] = mapped_column(
         DbEnum(ReviewTaskStatus), default=ReviewTaskStatus.pending
     )
+    # 艾宾浩斯调度字段（design.md D4/D5）：首级当天用 next_review_at=创建时刻表达
+    next_review_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    first_studied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    consecutive_correct: Mapped[int] = mapped_column(Integer, default=0)
+    consecutive_error: Mapped[int] = mapped_column(Integer, default=0)
 
     history: Mapped[list["ReviewHistory"]] = relationship(
         back_populates="review_task", cascade="all, delete-orphan"

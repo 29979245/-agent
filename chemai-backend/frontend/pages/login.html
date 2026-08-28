@@ -41,6 +41,23 @@
     .msg.err { color: var(--congo); }
     .hint { margin-top: 14px; text-align: center; font-size: 12px; color: var(--muted); line-height: 1.8; }
     .hint code { background: var(--paper); border: 1px solid var(--line); padding: 1px 6px; border-radius: 3px; }
+    .session-notice {
+      display: none;
+      font-size: 12px;
+      line-height: 1.7;
+      background: rgba(180, 60, 40, .06);
+      border: 1px solid rgba(180, 60, 40, .25);
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 16px;
+      color: var(--congo);
+    }
+    .session-notice .act { display: block; margin-top: 8px; text-align: right; }
+    .session-notice .act a,
+    .session-notice .act button {
+      font-size: 12px; color: var(--teal); background: none; border: none;
+      cursor: pointer; text-decoration: underline; font-family: inherit; padding: 0 4px;
+    }
   </style>
 </head>
 <body>
@@ -48,6 +65,7 @@
     <div class="brand">智辅化学</div>
     <div class="subtitle">考试工作台 · 教师登录</div>
     <div class="card">
+      <div id="sessionNotice" class="session-notice"></div>
       <form id="loginForm" autocomplete="off">
         <div class="field">
           <label for="username">用户名</label>
@@ -84,14 +102,27 @@
         return { teacher: '教师', admin: '管理员', dept_admin: '校级管理员', subject_lead: '学科负责人' }[role] || role;
       }
 
-      // 已登录教师直接进入工作台
-      if (window.ChemAuth.getToken()) {
-        if (window.ChemAuth.isTeacherLike()) {
-          location.replace('exam-v2.html');
+      // 已有会话：不自动跳转，改为展示当前登录状态；切换角色需先退出（本设备同一时间仅一个会话）
+      (function () {
+        const user = window.ChemAuth.getUser();
+        if (!user || !window.ChemAuth.getToken()) return;
+        const notice = document.getElementById('sessionNotice');
+        const teacherLike = ['teacher', 'admin', 'dept_admin', 'subject_lead'].indexOf(user.role) !== -1;
+        const name = user.name || '';
+        if (teacherLike) {
+          notice.innerHTML = '当前已登录教师端：' + name + '。' +
+            '<span class="act"><a href="exam-v2.html">进入工作台</a> · <button id="sessionLogout">退出登录</button></span>';
         } else {
-          window.ChemAuth.logout();
+          notice.innerHTML = '当前已登录学生端：' + name + '。如需登录教师端，请先退出当前账号。' +
+            '<span class="act"><button id="sessionLogout">退出登录</button></span>';
         }
-      }
+        notice.style.display = 'block';
+        const logoutBtn = document.getElementById('sessionLogout');
+        if (logoutBtn) logoutBtn.addEventListener('click', function () {
+          window.ChemAuth.logout();
+          notice.style.display = 'none';
+        });
+      })();
 
       form.addEventListener('submit', async function (e) {
         e.preventDefault();
@@ -105,14 +136,19 @@
         submitBtn.textContent = '登录中…';
         show('', false);
         try {
-          const data = await window.ChemAuth.login(username, password);
-          if (window.ChemAuth.isTeacherLike()) {
-            show('登录成功，正在进入工作台…', false);
-            location.replace('exam-v2.html');
+          const data = await window.ChemAuth.login(
+            username, password,
+            ['teacher', 'admin', 'dept_admin', 'subject_lead'],
+            '该账号不能通过教师端登录。学生账号请通过学生端登录。'
+          );
+          const target = window.ChemAuth.redirectAfterLogin();
+          if (target) {
+            show('登录成功，正在进入…', false);
+            location.replace(target);
           } else {
-            // 学生/家长等角色无工作台权限：清除会话并提示
+            // 教师类角色但暂无可用页面：清除会话并提示
             window.ChemAuth.logout();
-            show('无权限：仅教师及以上角色可进入出题工作台（当前角色：' + roleLabel(data.role) + '）', true);
+            show('无权限：当前角色暂无可用页面（当前角色：' + roleLabel(data.role) + '）', true);
           }
         } catch (err) {
           show((err && err.message) || '登录失败，请稍后重试', true);

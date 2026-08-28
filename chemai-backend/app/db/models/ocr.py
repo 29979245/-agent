@@ -18,13 +18,19 @@ class UploadSession(Base):
     __tablename__ = "upload_session"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    school_id: Mapped[int | None] = mapped_column(
+        ForeignKey("school.id", ondelete="RESTRICT"), nullable=True, index=True
+    )  # 归属学校（数据隔离边界；教师上传时写入）
+    exam_id: Mapped[int | None] = mapped_column(
+        ForeignKey("exam_record.id", ondelete="RESTRICT"), nullable=True
+    )  # 批改绑定考试（run 时写入，save 校验一致性，防 run/save exam_id 漂移）
     status: Mapped[UploadSessionStatus] = mapped_column(
         DbEnum(UploadSessionStatus), default=UploadSessionStatus.uploaded
     )
     degraded: Mapped[bool] = mapped_column(Boolean, default=False)
     fallback_used: Mapped[bool] = mapped_column(Boolean, default=False)
     version: Mapped[int] = mapped_column(Integer, default=0)  # 乐观锁版本
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
     tasks: Mapped[list["OCRTask"]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
@@ -43,8 +49,9 @@ class OCRTask(Base):
     session_id: Mapped[int] = mapped_column(
         ForeignKey("upload_session.id", ondelete="CASCADE"), nullable=False
     )
+    file_path: Mapped[str] = mapped_column(String(500), default="")  # 待识别文件路径（批量上传写入）
     status: Mapped[OCRTaskStatus] = mapped_column(
-        DbEnum(OCRTaskStatus), default=OCRTaskStatus.pending
+        DbEnum(OCRTaskStatus), default=OCRTaskStatus.pending, index=True
     )
     progress: Mapped[int] = mapped_column(Integer, default=0)
     result: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -60,11 +67,11 @@ class StudentSubmission(Base):
     __tablename__ = "student_submission"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    exam_id: Mapped[int] = mapped_column(
-        ForeignKey("exam_record.id", ondelete="RESTRICT"), nullable=False
-    )
+    exam_id: Mapped[int | None] = mapped_column(
+        ForeignKey("exam_record.id", ondelete="RESTRICT"), nullable=True
+    )  # 模式2/3（无考试）可空
     session_id: Mapped[int] = mapped_column(
-        ForeignKey("upload_session.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("upload_session.id", ondelete="CASCADE"), nullable=False, index=True
     )
     image_path: Mapped[str] = mapped_column(String(500), default="")
     answer_list: Mapped[list] = mapped_column(

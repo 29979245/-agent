@@ -262,6 +262,7 @@
     },
     mounted() {
       if (!window.ChemAuth.requireAuth()) return;
+      if (!window.ChemAuth.isTeacherLike()) { location.href = 'forbidden.html?side=teacher'; return; }
       this.loadKnowledge();
       this.loadExamSets();
       this.loadPapers();

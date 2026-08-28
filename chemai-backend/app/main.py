@@ -13,14 +13,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.config import settings  # 必须在各 router 之前导入：config 加载 .env 的 JWT_SECRET，security.py 导入期即读取
 from app.api.v1.audit import audit_router
 from app.api.v1.auth import auth_router, parent_router
 from app.api.v1.diagnosis import diagnosis_router
 from app.api.v1.exam import classes_router, exam_router
 from app.api.v1.exam_bank import exam_bank_router
-from app.config import settings
+from app.api.v1.integration import integration_router
+from app.api.v1.ocr import grading_router, ocr_router
+from app.api.v1.panel import panel_router
+from app.api.v1.parent import parent_router as parent_portal_router
+from app.api.v1.practice import practice_router
+from app.api.v1.report import report_router
+from app.api.v1.review import review_router
+from app.api.v1.student import student_router
+from app.api.v1.warning import warning_router
+from app.api.v1.wrong_question import wrong_question_router
 from app.core.exceptions import APIException
 from app.core.middleware import AuthMiddleware
+from app.services.exercise.scheduler import create_scheduler
+from app.services.ocr.scheduler import create_scheduler as create_ocr_scheduler
 from app.services.question.historical import reload_bank
 from app.services.question.vector import reload_vector
 
@@ -45,7 +57,23 @@ def startup_services(exam_bank_dir: str | None = None, chroma_dir: str | None = 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     startup_services()
-    yield
+    scheduler = create_scheduler() if settings.enable_scheduler else None
+    ocr_scheduler = create_ocr_scheduler() if settings.enable_scheduler else None
+    if scheduler is not None:
+        scheduler.start()
+        logger.info("[DailyPractice] APScheduler 已启动（每日 08:00 UTC）")
+    if ocr_scheduler is not None:
+        ocr_scheduler.start()
+        logger.info("[OCR] APScheduler 已启动（任务轮询 5s）")
+    try:
+        yield
+    finally:
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
+            logger.info("[DailyPractice] APScheduler 已关闭")
+        if ocr_scheduler is not None:
+            ocr_scheduler.shutdown(wait=False)
+            logger.info("[OCR] APScheduler 已关闭")
 
 
 app = FastAPI(
@@ -67,6 +95,10 @@ def _api_exception_handler(request: Request, exc: APIException) -> JSONResponse:
 
 @app.exception_handler(404)
 def _not_found_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    # APIException 携带自定义 error_code（如 NOTIFICATION_NOT_FOUND）时保留之；
+    # 纯路由未匹配的 404（detail 为字符串）返回通用 NOT_FOUND。
+    if isinstance(exc.detail, dict) and exc.detail.get("error_code"):
+        return JSONResponse(status_code=404, content=exc.detail)
     return JSONResponse(
         status_code=404,
         content={"detail": "资源不存在", "error_code": "NOT_FOUND", "suggestion": ""},
@@ -104,11 +136,22 @@ app.add_middleware(
 
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(parent_router, prefix="/api/parent", tags=["parent"])
+app.include_router(parent_portal_router, prefix="/api/parent", tags=["parent"])
 app.include_router(audit_router, prefix="/api/question", tags=["question"])
 app.include_router(exam_bank_router, prefix="/api/exam-bank", tags=["exam-bank"])
 app.include_router(exam_router, prefix="/api/exam", tags=["exam"])
 app.include_router(classes_router, prefix="/api", tags=["org"])
+app.include_router(panel_router, prefix="/api/panel", tags=["panel"])
 app.include_router(diagnosis_router, prefix="/api/diagnosis", tags=["diagnosis"])
+app.include_router(practice_router, prefix="/api/practice", tags=["practice"])
+app.include_router(review_router, prefix="/api/review", tags=["review"])
+app.include_router(warning_router, prefix="/api/warning", tags=["warning"])
+app.include_router(wrong_question_router, prefix="/api/wrong-questions", tags=["wrong-questions"])
+app.include_router(ocr_router, prefix="/api/ocr", tags=["ocr"])
+app.include_router(grading_router, prefix="/api/grading", tags=["grading"])
+app.include_router(integration_router, prefix="/api/integration", tags=["integration"])
+app.include_router(report_router, prefix="/api/report", tags=["report"])
+app.include_router(student_router, prefix="/api/student", tags=["student"])
 
 # 静态页托管：/pages/login.html、/pages/exam-v2.html
 app.mount("/pages", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="pages")

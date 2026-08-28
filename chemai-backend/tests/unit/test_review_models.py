@@ -48,16 +48,30 @@ def test_review_task_defaults(db_session):
     got = db_session.get(ReviewTask, task.id)
     assert got.review_level == ReviewLevel.level1
     assert got.status == ReviewTaskStatus.pending
+    assert got.next_review_at is None
+    assert got.first_studied_at is None
+    assert got.completed_at is None
+    assert got.consecutive_correct == 0
+    assert got.consecutive_error == 0
 
 
 def test_review_task_state_transition(db_session):
     task, _, _ = _task(db_session)
     task.review_level = ReviewLevel.level3
-    task.status = ReviewTaskStatus.in_progress
+    task.status = ReviewTaskStatus.overdue
     db_session.commit()
     got = db_session.get(ReviewTask, task.id)
     assert got.review_level == ReviewLevel.level3
-    assert got.status == ReviewTaskStatus.in_progress
+    assert got.status == ReviewTaskStatus.overdue
+
+
+def test_review_task_three_state_members(db_session):
+    """三态成员合法：pending/overdue/done；done 为终态。"""
+    task, _, _ = _task(db_session)
+    task.status = ReviewTaskStatus.done
+    db_session.commit()
+    got = db_session.get(ReviewTask, task.id)
+    assert got.status == ReviewTaskStatus.done
 
 
 # ---- 4.2 ReviewHistory ----

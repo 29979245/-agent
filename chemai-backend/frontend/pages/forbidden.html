@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>无权限 · 智辅化学</title>
+  <style>
+    :root {
+      --oxford: #002045;
+      --teal: #13696a;
+      --paper: #faf8f5;
+      --white: #ffffff;
+      --gray: #6b7280;
+      --border: #e7e3dc;
+      --border-strong: #d6d0c4;
+      --radius: 8px;
+    }
+
+    @font-face { font-family: "Cormorant Garamond"; src: url("vendor/fonts/cormorant-garamond-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+    @font-face { font-family: "Cormorant Garamond"; src: url("vendor/fonts/cormorant-garamond-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+    @font-face { font-family: "Cormorant Garamond"; src: url("vendor/fonts/cormorant-garamond-latin-700-normal.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+    @font-face { font-family: "IBM Plex Sans"; src: url("vendor/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+    @font-face { font-family: "IBM Plex Sans"; src: url("vendor/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+    @font-face { font-family: "IBM Plex Sans"; src: url("vendor/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+      background: var(--paper);
+      color: var(--oxford);
+      min-width: 720px;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .card {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0, 32, 69, .06);
+      padding: 48px 56px;
+      text-align: center;
+      max-width: 520px;
+    }
+    .code {
+      font-family: "Cormorant Garamond", Georgia, "Songti SC", "SimSun", serif;
+      font-size: 72px;
+      font-weight: 700;
+      color: var(--teal);
+      line-height: 1;
+    }
+    h1 {
+      font-family: "Cormorant Garamond", Georgia, "Songti SC", "SimSun", serif;
+      font-size: 28px;
+      font-weight: 600;
+      margin-top: 16px;
+    }
+    .subtitle {
+      font-size: 14px;
+      color: var(--gray);
+      line-height: 1.7;
+      margin-top: 12px;
+    }
+    .role-line {
+      display: inline-block;
+      font-size: 12px;
+      color: var(--gray);
+      background: rgba(19, 105, 106, .06);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px 14px;
+      margin-top: 16px;
+    }
+    .actions {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-top: 32px;
+    }
+    .btn {
+      text-decoration: none;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--white);
+      background: var(--teal);
+      border: 1px solid var(--teal);
+      border-radius: var(--radius);
+      padding: 11px 24px;
+      cursor: pointer;
+      transition: opacity .15s ease;
+    }
+    .btn:hover { opacity: .88; }
+    .btn.ghost {
+      color: var(--oxford);
+      background: var(--white);
+      border-color: var(--border-strong);
+    }
+    .btn.ghost:hover { border-color: var(--oxford); opacity: 1; }
+  </style>
+</head>
+<body>
+  <main class="card" role="alert">
+    <div class="code">403</div>
+    <h1 id="title">无权限访问</h1>
+    <p class="subtitle" id="subtitle"></p>
+    <span class="role-line" id="roleLine"></span>
+    <div class="actions">
+      <a class="btn" id="goHome" href="#">返回我的页面</a>
+      <button class="btn ghost" id="logoutBtn">退出登录</button>
+    </div>
+  </main>
+
+  <script src="js/auth.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      var ChemAuth = window.ChemAuth;
+      var user = ChemAuth.getUser() || {};
+      var isStudent = user.role === 'student';
+      var params = new URLSearchParams(location.search);
+      // side：被拦截的是哪一侧。缺省按当前角色推断：学生默认访问教师端被拦
+      var side = params.get('side') || (isStudent ? 'teacher' : 'student');
+
+      var ROLE_LABEL = {
+        teacher: '教师', admin: '管理员', dept_admin: '校级管理员',
+        subject_lead: '学科负责人', student: '学生'
+      };
+
+      document.getElementById('title').textContent =
+        side === 'student' ? '无权限访问学生端' : '无权限访问教师端';
+      document.getElementById('subtitle').textContent =
+        side === 'student'
+          ? '当前账号不是学生角色，无法访问学生端页面。教师账号请通过教师端登录。'
+          : '当前账号不是教师角色，无法访问教师端页面。学生账号请通过学生端登录。';
+      document.getElementById('roleLine').textContent =
+        '当前账号：' + (ROLE_LABEL[user.role] || user.role || '未登录');
+
+      var goHome = document.getElementById('goHome');
+      goHome.href = isStudent ? 'practice.html' : 'exam-v2.html';
+      goHome.textContent = isStudent ? '返回学生端' : '返回教师端';
+
+      document.getElementById('logoutBtn').addEventListener('click', function () {
+        ChemAuth.logout();
+        location.href = isStudent ? 'student-login.html' : 'login.html';
+      });
+    })();
+  </script>
+</body>
+</html>

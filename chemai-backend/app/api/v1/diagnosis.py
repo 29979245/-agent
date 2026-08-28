@@ -197,17 +197,20 @@ def _apply_config_flags(db: Session, teacher_id: int, answers: list[StudentAnswe
 
 # ---------------- 8.1 run-llm ----------------
 
-@diagnosis_router.post("/run-llm")
-@require_permission("diagnosis", "create")
-def run_llm(
-    request: Request,
-    payload: RunLLMRequest,
-    db: Session = Depends(get_db),
-    client: DiagnosisLLMClient = Depends(get_diagnosis_client),
+
+def run_llm_batch(
+    db: Session,
+    exam_id: int,
+    client: DiagnosisLLMClient,
+    user,
+    limit: int = MAX_BATCH,
 ) -> dict:
-    """批量触发 LLM 深度诊断：错误作答 barrier_type IS NULL 优先，≤10 条。"""
+    """批量触发 LLM 深度诊断核心逻辑：错误作答 barrier_type IS NULL 优先，≤10 条。
+
+    端点与 OCR 保存后诊断（8.1）共用；user 提供教师 role_id 供 config 接线。
+    """
     base_filter = (
-        StudentAnswer.exam_id == payload.exam_id,
+        StudentAnswer.exam_id == exam_id,
         StudentAnswer.is_correct.is_(False),
         StudentAnswer.barrier_type.is_(None),
     )
@@ -218,12 +221,12 @@ def run_llm(
         db.query(StudentAnswer)
         .filter(*base_filter)
         .order_by(StudentAnswer.id)
-        .limit(min(payload.limit, MAX_BATCH))
+        .limit(min(limit, MAX_BATCH))
         .all()
     )
     if not candidates:
         return {
-            "exam_id": payload.exam_id,
+            "exam_id": exam_id,
             "diagnosed": 0,
             "failed": 0,
             "failures": [],
@@ -294,18 +297,30 @@ def run_llm(
             _apply_to_answer(ans, fused)
             diagnosed += 1
 
-    _apply_config_flags(db, _role_id(db, request.state.user), candidates)
+    _apply_config_flags(db, _role_id(db, user), candidates)
     db.commit()
     refresh_profiles(db)  # 聚合跳过冻结学生（T1）
 
     return {
-        "exam_id": payload.exam_id,
+        "exam_id": exam_id,
         "diagnosed": diagnosed,
         "failed": failed,
         "failures": failures,
         "remaining": max(0, total_pending - len(candidates)),
         "message": f"还有 {total_pending - len(candidates)} 条待分批处理" if total_pending > len(candidates) else None,
     }
+
+
+@diagnosis_router.post("/run-llm")
+@require_permission("diagnosis", "create")
+def run_llm(
+    request: Request,
+    payload: RunLLMRequest,
+    db: Session = Depends(get_db),
+    client: DiagnosisLLMClient = Depends(get_diagnosis_client),
+) -> dict:
+    """批量触发 LLM 深度诊断：错误作答 barrier_type IS NULL 优先，≤10 条。"""
+    return run_llm_batch(db, payload.exam_id, client, request.state.user, limit=payload.limit)
 
 
 # ---------------- 8.2 只读统计 ----------------

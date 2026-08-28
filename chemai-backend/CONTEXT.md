@@ -16,7 +16,9 @@
 - **学生（Student）**：系统核心实体，存储障碍画像、练习追踪、6 位家长绑定码。
 - **家长（Parent）**：通过绑定码与学生建立亲子关系的监护人。
 - **亲子绑定（StudentParentBinding）**：家长与学生的绑定关系记录，含绑定状态与关系（父亲/母亲/其他监护人）。
-- **考试记录（ExamRecord）**：一次考试/练习/作业记录，归属于班级，含考试类型、名称（name）、六态生命周期状态（status）、发布元数据（question_stats）与错题统计（stats）。
+- **绑定（Binding）**：家长凭绑定码与学生建立的授权关系，写入 StudentParentBinding，状态 active/inactive；仅 active 绑定下家长可查看该生数据。
+- **绑定码（Bind Code）**：学生端生成的 6 位随机字符凭证（32 字符混淆排除集 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`，剔除易混淆 0/O、1/I），写回 Student.bind_code，重新生成旧码失效；家长以「手机号 + 绑定码」登录并完成绑定。
+- **考试记录（ExamRecord）**：一次考试/练习/作业记录，归属于班级（class_id）。正式考试按班级组织、全班共享一份题目；练习（自适应/每日）按学生组织，每位学生一份独立题目与独立记录。含考试类型、名称（name）、六态生命周期状态（status）、发布元数据（question_stats）与错题统计（stats）。
 - **题目（Question）**：一份完整化学试题，含正文、选项、答案、解析、知识点标签、难度、来源、四维审核状态。
 - **学生作答（StudentAnswer）**：学生针对某题目的作答记录，含是否正确、障碍类型标签、连续错误/正确计数。
 - **学生提交（StudentSubmission）**：一次考试中某学生答题卡的独立提交，含原始/批改后图片、答案列表、总分。
@@ -26,7 +28,7 @@
 - **知识点（KnowledgePoint）**：化学知识点记录，含分类、关联 PubChem 编号、动态错误率；知识图谱节点。
 - **家长通知（ParentNotification）**：推送给家长的消息，含类型（学习报告/预警提醒/教师消息）与已读状态。
 - **预警日志（WarningLog）**：学情预警记录，追踪是否已通知教师/家长/学生本人。
-- **复习任务（ReviewTask）**：错题自动创建的间隔复习任务，按艾宾浩斯 6 级安排。
+- **复习任务（ReviewTask）**：错题自动创建的间隔复习任务，按艾宾浩斯 6 级安排；任务状态三态——待复习（pending）/ 超期（overdue）/ 已掌握（done，终态），到期未做由每日调度器标记超期。
 - **障碍配置（BarrierConfig）**：教师的诊断阈值配置（teacher_id 唯一，默认连续错误 3 / 连续正确 2 / 低分 3 / 预警 3 / 启用 false），`GET/PUT /api/diagnosis/config/{teacher_id}` upsert、部分字段更新不重置其余；启用且连续错误 ≥ 阈值时对应作答 `diagnosis_flag=needs_attention`。
 
 ---
@@ -38,6 +40,9 @@
 - **间隔复习等级（Review Level）**：1→6 级复习状态机（1 天/3 天/7 天/14 天/30 天/不再安排），答对升级、答错降级。
 - **掌握标准（Mastery Threshold）**：同一知识点连续答对 N 次（默认 3）判定为已掌握。
 - **自适应练习（Adaptive Practice）**：依据学生障碍画像与薄弱知识点生成个性化 ZPD 练习。
+- **每日练习（Daily Practice）**：调度器每天 08:00 为学生自动创建的个性化练习，按学生障碍画像映射知识点（concept/reading/expression 各对应一组），同生同天不重复。
+- **周报（Weekly Report）**：每周一 08:00 UTC 自动生成（家长亦可手动触发）的周度学情报告，LLM 将学习数据转为家长友好语言，JSON 三段（summary/detail/advice + no_data 标志），同一周（周一到周日）每生去重一份。
+- **通俗解读（Plain-Language Interpretation）**：将化学专业术语与量化数据转为 40-55 岁无化学背景家长可懂的日常用语（如"氧化还原"→"物质与氧气的反应"、"正确率 72%"→"大部分题目都做对了"），家长端报告与 AI 摘要的核心呈现原则。
 - **薄弱知识点（Weak Knowledge Points）**：学生诊断结果中标注的知识短板列表。
 - **学习计划（Learning Plan）**：教师为学生制定的个性化计划，含每日任务列表；状态机：预览→已应用/已发送家长/已删除。
 - **错题变式训练（Variant Training）**：对错题生成同知识点变式题进行强化训练。
@@ -177,6 +182,7 @@
 ## 七、数据与质量（Data & Quality）
 
 - **三库分离（Three Databases）**：主库（业务数据）/ Agent 检查点库（对话状态）/ Agent 长期记忆库（跨会话记忆）。
+- **Webhook（Webhook）**：事件回调机制，7 种事件类型（practice.assigned/practice.completed/exam.created/exam.graded/warning.triggered/student.login/review.due）；注册时记录 URL+secret（列表掩码显示），投递带 HMAC-SHA256 签名（X-Webhook-Signature/X-Webhook-Timestamp 头）与指数退避重试（≤3 次），投递结果落库到 WebhookRegistration。
 - **RAG（Retrieval-Augmented Generation）**：以历年真题为上下文注入 LLM prompt 生成题目/变体。
 - **Golden 数据集（Golden Dataset）**：100 条标注的评测样本，驱动 L3 质量评测与回归对比。
 - **Evals 基线（Baseline）**：`baseline.json` 记录各评测项基线，`run_evals --compare baseline.json` 做劣化检测。

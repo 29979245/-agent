@@ -97,6 +97,7 @@ def test_login_success_issues_tokens(client, db_session):
     assert body["user_id"] == account.id
     assert body["name"] == "王老师"
     assert body["school_id"] == school.id
+    assert body["role_id"] == account.role_id
 
 
 def test_login_wrong_password(client, db_session):
@@ -150,11 +151,65 @@ def test_login_rejected_teacher_blocked(client, db_session):
 
 def test_student_login_resolves_school_id(client, db_session):
     _, grade, cls = _org(db_session)
-    _student_account(db_session, cls.id)
+    student, _ = _student_account(db_session, cls.id)
     resp = client.post("/api/auth/login", json={"username": "s1", "password": "Passw0rd!"})
     assert resp.status_code == 200
     assert resp.json()["role"] == "student"
     assert resp.json()["school_id"] == grade.school_id
+    assert resp.json()["role_id"] == student.id
+
+
+# ---- 修改密码（change student-supplement-apis task 5.1）----
+
+def _student_login_access(client, db_session):
+    _, _, cls = _org(db_session)
+    _student_account(db_session, cls.id)
+    return client.post("/api/auth/login", json={"username": "s1", "password": "Passw0rd!"}).json()["access_token"]
+
+
+def test_change_password_wrong_old_password_400(client, db_session):
+    token = _student_login_access(client, db_session)
+    resp = client.post(
+        "/api/auth/change-password",
+        json={"old_password": "wrong", "new_password": "NewPass6!"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error_code"] == "BUSINESS_RULE_VIOLATION"
+
+
+def test_change_password_success_old_invalid_new_valid(client, db_session):
+    token = _student_login_access(client, db_session)
+    resp = client.post(
+        "/api/auth/change-password",
+        json={"old_password": "Passw0rd!", "new_password": "NewPass6!"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+
+    old = client.post("/api/auth/login", json={"username": "s1", "password": "Passw0rd!"})
+    assert old.status_code == 401  # 旧密码不可再登录
+
+    new = client.post("/api/auth/login", json={"username": "s1", "password": "NewPass6!"})
+    assert new.status_code == 200  # 新密码可登录
+
+
+def test_change_password_unauthorized_401(client, db_session):
+    resp = client.post(
+        "/api/auth/change-password",
+        json={"old_password": "x", "new_password": "NewPass6!"},
+    )
+    assert resp.status_code == 401
+
+
+def test_change_password_short_new_password_422(client, db_session):
+    token = _student_login_access(client, db_session)
+    resp = client.post(
+        "/api/auth/change-password",
+        json={"old_password": "Passw0rd!", "new_password": "123"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422  # min_length=6 校验
 
 
 # ---- 7.5 家长登录 ----

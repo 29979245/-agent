@@ -5,11 +5,11 @@
 ## Requirements
 
 ### Requirement: 统一账户登录
-系统 SHALL 提供登录端点，接受用户名、密码与角色，校验通过后签发 access token 与 refresh token。
+系统 SHALL 提供登录端点，接受用户名、密码与角色，校验通过后签发 access token 与 refresh token，并在响应中返回业务实体 ID（`role_id`，学生即 `Student.id`），供客户端定位自身资源。
 
 #### Scenario: 登录成功
 - **WHEN** 提交正确的用户名、密码与角色
-- **THEN** 返回 access token（24 小时有效）、refresh token（7 天有效）、用户 ID、姓名与角色
+- **THEN** 返回 access token（24 小时有效）、refresh token（7 天有效）、用户 ID、姓名、角色与业务实体 ID（`role_id`）
 
 #### Scenario: 登录失败
 - **WHEN** 提交错误的密码
@@ -80,3 +80,18 @@
 #### Scenario: 密码校验
 - **WHEN** 用户提交密码用于登录
 - **THEN** 系统以存储的不可逆散列验证密码，而不是比较明文
+
+### Requirement: 修改密码
+系统 SHALL 提供 `POST /api/auth/change-password` 端点，允许已认证用户校验旧密码后更新自身密码；新密码以不可逆散列存储。
+
+#### Scenario: 修改密码成功
+- **WHEN** 已认证用户提交正确的旧密码与新的密码
+- **THEN** 返回成功，账户密码更新为新密码的不可逆散列
+
+#### Scenario: 旧密码错误
+- **WHEN** 已认证用户提交错误的旧密码
+- **THEN** 返回业务规则冲突错误，密码不更新
+
+#### Scenario: 未认证请求被拒绝
+- **WHEN** 未携带有效 token 请求修改密码
+- **THEN** 返回 401 未认证，密码不更新

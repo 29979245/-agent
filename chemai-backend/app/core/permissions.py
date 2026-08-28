@@ -27,6 +27,11 @@ RESOURCES = [
     "ocr",
     "grading",
     "diagnosis",
+    "practice",
+    "warning",
+    "report",
+    "account",
+    "integration",
 ]
 OPERATIONS = ["create", "read", "update", "delete"]
 MATRIX_ROLES = ["admin", "dept_admin", "subject_lead", "teacher", "student"]
@@ -46,9 +51,12 @@ ROLE_PERMISSIONS: dict[str, dict[str, set[str]]] = {
         "ocr": {"read"},
         "grading": {"read"},
         "diagnosis": {"create", "read", "update", "delete"},
+        "practice": {"read"},
+        "warning": {"create", "read", "update", "delete"},
+        "account": {"update"},
     },
-    # 只读角色：学科组长对任何资源仅 read（F2）
-    "subject_lead": {r: {"read"} for r in RESOURCES},
+    # 只读角色：学科组长对任何资源仅 read（F2）；account 例外——可改自身密码
+    "subject_lead": {r: {"read"} for r in RESOURCES} | {"account": {"read", "update"}},
     "teacher": {
         "school": {"read"},
         "grade": {"read"},
@@ -61,6 +69,10 @@ ROLE_PERMISSIONS: dict[str, dict[str, set[str]]] = {
         "ocr": {"create", "read", "update"},
         "grading": {"create", "read", "update"},
         "diagnosis": {"create", "read", "update"},
+        "practice": {"read"},
+        "warning": {"read", "update", "create"},
+        "report": {"read"},
+        "account": {"update"},
     },
     "student": {
         "school": {"read"},
@@ -74,6 +86,9 @@ ROLE_PERMISSIONS: dict[str, dict[str, set[str]]] = {
         "ocr": set(),
         "grading": set(),
         "diagnosis": {"read"},
+        "practice": {"read", "create", "update"},
+        "report": {"read", "update"},
+        "account": {"update"},
     },
 }
 

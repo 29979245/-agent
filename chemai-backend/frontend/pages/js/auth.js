@@ -21,6 +21,35 @@
       const u = this.getUser();
       return !!u && TEACHER_ROLES.includes(u.role);
     },
+    isStudent() {
+      const u = this.getUser();
+      return !!u && u.role === 'student';
+    },
+    isParent() {
+      const u = this.getUser();
+      return !!u && u.role === 'parent';
+    },
+    // 学生业务实体 id（= Student.id，登录响应的 role_id），所有学生端点以它作路径参数
+    getStudentId() {
+      const u = this.getUser();
+      return u ? u.role_id : null;
+    },
+    // 登录成功后的落点：学生进练习页，教师进工作台，家长进主面板
+    redirectAfterLogin() {
+      if (this.isStudent()) return 'practice.html';
+      if (this.isTeacherLike()) return 'exam-v2.html';
+      if (this.isParent()) return 'parent.html';
+      return null;
+    },
+    // 未认证/过期跳转：logout 后 user 已清无法推断角色，需调用方传 forceStudent/forceParent；
+    // 无参时按当前 user 推断（保留历史行为）
+    redirectToLogin(forceStudent, forceParent) {
+      const student = forceStudent !== undefined ? forceStudent : this.isStudent();
+      if (student) { location.href = 'student-login.html'; return; }
+      const parent = forceParent !== undefined ? forceParent : this.isParent();
+      if (parent) { location.href = 'parent-login.html'; return; }
+      location.href = 'login.html';
+    },
     saveSession(token, user) {
       localStorage.setItem(TOKEN_KEY, token);
       localStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -31,18 +60,23 @@
     },
     requireAuth() {
       if (!this.getToken()) {
-        location.href = 'login.html';
+        this.redirectToLogin();
         return false;
       }
       return true;
     },
-    async login(username, password) {
+    // expectedRoles：限定本登录端允许的角色；不符时抛错且不保存会话（登录端角色门控）
+    async login(username, password, expectedRoles, rejectMessage) {
       const data = await window.ChemAPI.login({ username, password });
+      if (expectedRoles && expectedRoles.length && expectedRoles.indexOf(data.role) === -1) {
+        throw new Error(rejectMessage || '该账号角色与当前登录端不符');
+      }
       this.saveSession(data.access_token, {
         user_id: data.user_id,
         role: data.role,
         name: data.name,
         school_id: data.school_id,
+        role_id: data.role_id,
       });
       return data;
     },

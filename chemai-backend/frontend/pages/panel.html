@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>班级学情面板 · 智辅化学</title>
+  <style>
+    :root {
+      --oxford: #002045;
+      --teal: #13696a;
+      --paper: #faf8f5;
+      --white: #ffffff;
+      --ink: #1f2733;
+      --gray: #6b7280;
+      --border: #e7e3dc;
+      --border-strong: #d6d0c4;
+      --radius: 8px;
+      --purple: #7c3aed;
+      --blue: #2563eb;
+      --cyan: #0891b2;
+    }
+
+    @font-face { font-family: "Cormorant Garamond"; src: url("vendor/fonts/cormorant-garamond-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+    @font-face { font-family: "Cormorant Garamond"; src: url("vendor/fonts/cormorant-garamond-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+    @font-face { font-family: "Cormorant Garamond"; src: url("vendor/fonts/cormorant-garamond-latin-700-normal.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+    @font-face { font-family: "IBM Plex Sans"; src: url("vendor/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+    @font-face { font-family: "IBM Plex Sans"; src: url("vendor/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+    @font-face { font-family: "IBM Plex Sans"; src: url("vendor/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+    @font-face { font-family: "IBM Plex Sans"; src: url("vendor/fonts/ibm-plex-sans-latin-700-normal.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+      background: var(--paper);
+      color: var(--oxford);
+      min-width: 1080px;
+      -webkit-font-smoothing: antialiased;
+    }
+    h1, h2, h3 { font-family: "Cormorant Garamond", Georgia, "Songti SC", "SimSun", serif; }
+
+    /* ===== Header ===== */
+    .site-header {
+      background: var(--white);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 40px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark { color: var(--teal); display: flex; align-items: center; }
+    .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
+    .brand-name { font-family: "Cormorant Garamond", serif; font-size: 24px; font-weight: 700; color: var(--oxford); letter-spacing: .3px; }
+    .brand-sub { font-size: 12px; color: var(--gray); margin-top: 2px; }
+    .nav-links { display: flex; gap: 8px; margin-left: 32px; }
+    .nav-link {
+      color: var(--gray); text-decoration: none; font-size: 14px; font-weight: 500;
+      padding: 8px 14px; border-radius: var(--radius); transition: all .15s ease;
+    }
+    .nav-link:hover { color: var(--teal); background: rgba(19,105,106,.06); }
+    .nav-link.active { color: var(--teal); background: rgba(19,105,106,.08); }
+    .user { margin-left: auto; text-align: right; font-size: 12px; color: var(--gray); line-height: 1.7; }
+    .logout {
+      margin-top: 4px; background: none; border: 1px solid var(--border-strong);
+      color: var(--oxford); border-radius: var(--radius); padding: 5px 14px; cursor: pointer; font-size: 12px; font-weight: 500;
+    }
+    .logout:hover { border-color: var(--oxford); }
+
+    /* ===== Layout ===== */
+    .content { max-width: 1280px; margin: 0 auto; padding: 24px 40px 60px; display: flex; flex-direction: column; gap: 16px; }
+    .card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 1px 2px rgba(0,32,69,.04); }
+    .card-title { font-size: 14px; font-weight: 600; color: var(--oxford); }
+    .card-title .hint { color: var(--gray); font-weight: 400; margin-left: 6px; }
+
+    /* ===== Toolbar ===== */
+    .toolbar { padding: 16px 20px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    .toolbar select {
+      font-family: inherit; font-size: 14px; color: var(--oxford);
+      padding: 12px 16px; border: 1px solid var(--border-strong); border-radius: var(--radius);
+      background: var(--white); cursor: pointer; min-width: 200px;
+    }
+    .toolbar .hint { font-size: 13px; color: var(--gray); }
+    .section-title { font-size: 26px; font-weight: 600; margin-top: 4px; }
+
+    /* ===== Row 1 KPI ===== */
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .kpi-card { padding: 24px; }
+    .kpi-number { font-size: 28px; font-weight: 700; color: var(--oxford); line-height: 1; }
+    .kpi-number.empty { color: var(--gray); font-weight: 500; }
+    .kpi-label { font-size: 14px; color: var(--gray); margin-top: 10px; }
+
+    /* ===== Row 2 ===== */
+    .row-2 { display: grid; grid-template-columns: 60fr 40fr; gap: 16px; }
+    .chart-card { padding: 20px; }
+
+    /* Bar chart */
+    .bar-chart { margin-top: 24px; display: flex; }
+    .bar-yaxis { display: flex; flex-direction: column; justify-content: space-between; height: 240px; padding-right: 10px; text-align: right; }
+    .bar-yaxis span { font-size: 11px; color: var(--gray); line-height: 1; transform: translateY(-4px); }
+    .bar-plot { flex: 1; position: relative; }
+    .bar-grid { position: absolute; inset: 0; height: 240px; display: flex; flex-direction: column; justify-content: space-between; }
+    .bar-grid .line { border-top: 1px dashed var(--border); height: 0; }
+    .bars { position: relative; height: 240px; display: flex; align-items: flex-end; justify-content: space-around; gap: 18px; padding: 0 8px; border-bottom: 1.5px solid var(--oxford); }
+    .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+    .bar-value { font-size: 12px; font-weight: 600; color: var(--teal); margin-bottom: 6px; }
+    .bar { width: 100%; max-width: 46px; background: var(--teal); border-radius: 4px 4px 0 0; }
+    .bar-labels { display: flex; justify-content: space-around; gap: 18px; padding: 10px 8px 0; }
+    .bar-labels span { flex: 1; text-align: center; font-size: 12px; color: var(--gray); word-break: break-all; }
+    .chart-empty { color: var(--gray); font-size: 13px; padding: 48px 0; text-align: center; }
+
+    /* Donut */
+    .donut-wrap { margin-top: 20px; display: flex; flex-direction: column; align-items: center; gap: 24px; }
+    .donut { width: 180px; height: 180px; border-radius: 50%; background: conic-gradient(var(--border) 0% 100%); display: flex; align-items: center; justify-content: center; position: relative; }
+    .donut-hole { width: 108px; height: 108px; border-radius: 50%; background: var(--white); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .donut-hole .big { font-size: 20px; font-weight: 700; color: var(--oxford); }
+    .donut-hole .small { font-size: 12px; color: var(--gray); margin-top: 2px; }
+    .legend { display: flex; flex-direction: column; gap: 12px; width: 100%; padding: 0 8px; }
+    .legend-item { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--oxford); }
+    .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .legend-item .pct { margin-left: auto; font-weight: 600; color: var(--gray); }
+
+    /* ===== Row 3 Trend ===== */
+    .trend-head { display: flex; align-items: center; justify-content: space-between; }
+    .trend-legend { display: flex; gap: 20px; }
+    .trend-legend .legend-item { font-size: 13px; }
+    .trend-plot { position: relative; height: 260px; margin-top: 24px; }
+    .trend-grid { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; }
+    .trend-grid .line { border-top: 1px dashed var(--border); height: 0; }
+    .trend-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .trend-xaxis { display: flex; justify-content: space-between; margin-top: 8px; padding: 0 4px; }
+    .trend-xaxis span { font-size: 11px; color: var(--gray); }
+
+    /* ===== Row 4 Students ===== */
+    .students-scroll { display: flex; gap: 16px; overflow-x: auto; padding: 20px; padding-top: 16px; scrollbar-width: none; -ms-overflow-style: none; }
+    .students-scroll::-webkit-scrollbar { display: none; }
+    a.student-card {
+      flex: 0 0 180px; width: 180px; background: var(--white); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 10px;
+      text-decoration: none; color: inherit; cursor: pointer;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    a.student-card:hover { border-color: var(--teal); box-shadow: 0 2px 8px rgba(0,32,69,.08); }
+    .avatar { width: 40px; height: 40px; border-radius: 50%; background: #eceae5; color: var(--gray); display: flex; align-items: center; justify-content: center; }
+    .student-name { font-size: 14px; font-weight: 600; color: var(--oxford); }
+    .tag-pill { align-self: flex-start; font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 6px; }
+    .tag-concept { background: #f0e9fd; color: var(--purple); }
+    .tag-reading { background: #e6effd; color: var(--blue); }
+    .tag-express { background: #e0f3f7; color: var(--cyan); }
+    .mini-label { font-size: 12px; color: var(--gray); margin-top: 2px; }
+    .mini-bar { display: flex; gap: 2px; }
+    .mini-block { width: 8px; height: 8px; border-radius: 2px; background: #dcdad4; }
+    .mini-block.filled { background: var(--oxford); }
+    .card-pad { padding: 20px; }
+    .empty-note { color: var(--gray); font-size: 13px; padding: 24px 20px; }
+
+    @media (max-width: 900px) {
+      .row-2 { grid-template-columns: 1fr; }
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+      .site-header { flex-wrap: wrap; }
+      .nav-links { margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 3h6" /><path d="M10 3v6.5L5.2 17.2A2 2 0 0 0 6.9 20h10.2a2 2 0 0 0 1.7-2.8L14 9.5V3" /><path d="M7.5 14h9" />
+        </svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">智辅化学</span>
+        <span class="brand-sub">班级学情 · Class Analytics</span>
+      </span>
+    </div>
+    <nav class="nav-links">
+      <a class="nav-link active" href="panel.html">学情面板</a>
+      <a class="nav-link" href="students.html">学生管理</a>
+    </nav>
+    <div class="user">
+      <div id="userName">教师</div>
+      <button class="logout" id="logoutBtn">退出登录</button>
+    </div>
+  </header>
+
+  <main class="content">
+    <div class="card toolbar">
+      <select id="classSelect" aria-label="选择班级"><option value="">加载班级…</option></select>
+      <select id="timeSelect" aria-label="选择时间范围">
+        <option selected>时间范围：本学期</option>
+        <option>时间范围：本月</option>
+        <option>时间范围：上学期</option>
+        <option>时间范围：全年</option>
+      </select>
+    </div>
+
+    <h1 class="section-title">班级学情总览</h1>
+
+    <section class="kpi-grid" id="kpiGrid">
+      <div class="card kpi-card"><div class="kpi-number empty">—</div><div class="kpi-label">考试次数</div></div>
+      <div class="card kpi-card"><div class="kpi-number empty">—</div><div class="kpi-label">关注学生</div></div>
+      <div class="card kpi-card"><div class="kpi-number empty">—</div><div class="kpi-label">班级平均分</div></div>
+      <div class="card kpi-card"><div class="kpi-number empty">—</div><div class="kpi-label">知识点掌握率</div></div>
+    </section>
+
+    <div id="emptyState" class="card" style="display:none;">
+      <div class="empty-note">暂无考试数据，请先完成一次考试</div>
+    </div>
+
+    <div id="panelBody">
+      <section class="row-2">
+        <div class="card chart-card">
+          <div class="card-title">知识点错误率</div>
+          <div id="barWrap"></div>
+        </div>
+        <div class="card chart-card">
+          <div class="card-title">障碍类型分布</div>
+          <div id="donutWrap"></div>
+        </div>
+      </section>
+
+      <section class="card chart-card">
+        <div class="trend-head">
+          <div class="card-title">班级平均分 vs 年级平均分</div>
+          <div class="trend-legend">
+            <div class="legend-item"><span class="legend-dot" style="background:var(--teal)"></span>班级平均分</div>
+            <div class="legend-item"><span class="legend-dot" style="background:var(--oxford)"></span>年级平均分</div>
+          </div>
+        </div>
+        <div id="trendWrap"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-pad" style="padding-bottom:0;">
+          <div class="card-title">关注学生<span class="hint" id="focusHint">0 人</span></div>
+        </div>
+        <div id="focusWrap"></div>
+      </section>
+    </div>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      var ChemAPI = window.ChemAPI;
+      var ChemAuth = window.ChemAuth;
+
+      if (!ChemAuth.requireAuth()) return;
+      if (!ChemAuth.isTeacherLike()) { location.href = 'forbidden.html?side=teacher'; return; }
+
+      var user = ChemAuth.getUser() || {};
+      document.getElementById('userName').textContent = user.name || '教师';
+      document.getElementById('logoutBtn').addEventListener('click', function () {
+        ChemAuth.logout();
+        location.href = 'login.html';
+      });
+
+      var classSelect = document.getElementById('classSelect');
+      var classes = [];
+      var gradeCache = {}; // gradeId -> trend 数据（切换班级时避免重复请求）
+
+      function el(id) { return document.getElementById(id); }
+
+      function fmtPct(v) {
+        if (v === null || v === undefined || isNaN(v)) return null;
+        return Math.round(v * 10) / 10;
+      }
+
+      function dominantBarrier(profile) {
+        if (!profile) return null;
+        var best = null;
+        var bestVal = 0;
+        ['concept', 'reading', 'expression'].forEach(function (k) {
+          var v = Number(profile[k]) || 0;
+          if (v > bestVal) { bestVal = v; best = k; }
+        });
+        return bestVal > 0 ? { axis: best, pct: bestVal } : null;
+      }
+
+      var BARRIER_META = {
+        concept: { label: '概念理解', cls: 'tag-concept', color: '#7c3aed' },
+        reading: { label: '审题障碍', cls: 'tag-reading', color: '#2563eb' },
+        expression: { label: '表述障碍', cls: 'tag-express', color: '#0891b2' }
+      };
+
+      // ---------- 渲染：柱状图 ----------
+      function renderBars(panel) {
+        var wrap = el('barWrap');
+        var kps = (panel.knowledge_points || []).slice(0, 10);
+        if (!kps.length) {
+          wrap.innerHTML = '<div class="chart-empty">暂无明显薄弱知识点</div>';
+          return;
+        }
+        var max = Math.max.apply(null, kps.map(function (k) { return k.error_rate; })) || 80;
+        max = Math.max(max, 80);
+        var yTicks = ['80%', '60%', '40%', '20%', '0%'];
+        var html = '<div class="bar-chart">' +
+          '<div class="bar-yaxis">' + yTicks.map(function (t) { return '<span>' + t + '</span>'; }).join('') + '</div>' +
+          '<div class="bar-plot">' +
+          '<div class="bar-grid" aria-hidden="true">' + '<div class="line"></div>'.repeat(5) + '</div>' +
+          '<div class="bars">' +
+          kps.map(function (k) {
+            var h = (k.error_rate / max * 100).toFixed(1);
+            return '<div class="bar-col"><span class="bar-value">' + k.error_rate + '%</span>' +
+              '<div class="bar" style="height:' + h + '%" title="' + escapeHtml(k.knowledge_point) + '"></div></div>';
+          }).join('') +
+          '</div>' +
+          '<div class="bar-labels">' + kps.map(function (k) { return '<span title="' + escapeHtml(k.knowledge_point) + '">' + escapeHtml(k.knowledge_point) + '</span>'; }).join('') + '</div>' +
+          '</div></div>';
+        wrap.innerHTML = html;
+      }
+
+      // ---------- 渲染：环形图 ----------
+      function renderDonut(panel) {
+        var wrap = el('donutWrap');
+        var dist = panel.barrier_distribution || { concept: 0, reading: 0, expression: 0 };
+        var order = ['concept', 'reading', 'expression'];
+        var colors = { concept: '#7c3aed', reading: '#2563eb', expression: '#0891b2' };
+        var total = order.reduce(function (s, k) { return s + (dist[k] || 0); }, 0);
+        if (!total) {
+          wrap.innerHTML = '<div class="donut-wrap"><div class="donut"><div class="donut-hole"><span class="big">0</span><span class="small">暂无数据</span></div></div></div>';
+          return;
+        }
+        var pcts = {};
+        var acc = 0;
+        var stops = order.map(function (k) {
+          var p = (dist[k] || 0) / total * 100;
+          pcts[k] = p;
+          var start = acc;
+          acc += p;
+          return colors[k] + ' ' + start.toFixed(1) + '% ' + acc.toFixed(1) + '%';
+        }).join(', ');
+        var html = '<div class="donut-wrap">' +
+          '<div class="donut" role="img" aria-label="障碍类型分布" style="background:conic-gradient(' + stops + ')">' +
+          '<div class="donut-hole"><span class="big">' + total + ' 人</span><span class="small">障碍分布</span></div></div>' +
+          '<div class="legend">' +
+          order.map(function (k) {
+            return '<div class="legend-item"><span class="legend-dot" style="background:' + colors[k] + '"></span>' +
+              BARRIER_META[k].label + '<span class="pct">' + (Math.round(pcts[k] * 10) / 10) + '%</span></div>';
+          }).join('') +
+          '</div></div>';
+        wrap.innerHTML = html;
+      }
+
+      // ---------- 渲染：双线趋势 ----------
+      function renderTrend(classTrend, gradeTrend) {
+        var wrap = el('trendWrap');
+        var cls = (classTrend || []).map(function (p) { return { date: p.exam_date, v: p.avg_score }; });
+        var grd = (gradeTrend || []).map(function (p) { return { date: p.exam_date, v: p.avg_score }; });
+        if (!cls.length && !grd.length) {
+          wrap.innerHTML = '<div class="chart-empty">数据不足</div>';
+          return;
+        }
+        var all = cls.concat(grd);
+        var vals = all.map(function (p) { return p.v; });
+        var yMin = Math.max(0, Math.floor(Math.min.apply(null, vals)) - 5);
+        var yMax = Math.min(100, Math.ceil(Math.max.apply(null, vals)) + 5);
+        var range = (yMax - yMin) || 1;
+        function series(points) {
+          if (points.length < 1) return null;
+          if (points.length === 1) {
+            var x1 = 8;
+            var y1 = ((yMax - points[0].v) / range * 100).toFixed(1);
+            return { pts: x1 + ',' + y1 + ' ' + x1 + ',' + y1, dots: [{ x: x1, y: y1 }] };
+          }
+          var pts = [];
+          var dots = [];
+          points.forEach(function (p, i) {
+            var x = 8 + i / (points.length - 1) * 84;
+            var y = (yMax - p.v) / range * 100;
+            pts.push(x.toFixed(1) + ',' + y.toFixed(1));
+            dots.push({ x: x, y: y });
+          });
+          return { pts: pts.join(' '), dots: dots };
+        }
+        var clsS = series(cls);
+        var grdS = series(grd);
+        var html = '<div class="trend-plot">' +
+          '<div class="trend-grid" aria-hidden="true">' + '<div class="line"></div>'.repeat(6) + '</div>' +
+          '<svg class="trend-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">' +
+          (clsS ? '<polyline points="' + clsS.pts + '" fill="none" stroke="#13696a" stroke-width="0.8" vector-effect="non-scaling-stroke" />' : '') +
+          (grdS ? '<polyline points="' + grdS.pts + '" fill="none" stroke="#002045" stroke-width="0.8" vector-effect="non-scaling-stroke" stroke-dasharray="2 2" />' : '') +
+          '</svg>' +
+          '<div style="position:absolute;inset:0;">' +
+          (clsS ? clsS.dots.map(function (d) { return '<span style="position:absolute;left:' + d.x + '%;top:' + d.y + '%;transform:translate(-50%,-50%);width:9px;height:9px;border-radius:50%;background:#13696a;border:2px solid #fff;box-shadow:0 0 0 1px #13696a;"></span>'; }).join('') : '') +
+          (grdS ? grdS.dots.map(function (d) { return '<span style="position:absolute;left:' + d.x + '%;top:' + d.y + '%;transform:translate(-50%,-50%);width:9px;height:9px;border-radius:50%;background:#002045;border:2px solid #fff;box-shadow:0 0 0 1px #002045;"></span>'; }).join('') : '') +
+          '</div></div>';
+        // X 轴日期：优先班级线，空则取年级线
+        var xSource = cls.length ? cls : grd;
+        var labels = xSource.map(function (p) {
+          var d = String(p.date).slice(5).replace('-', '/');
+          return '<span>' + d + '</span>';
+        }).join('');
+        html += '<div class="trend-xaxis">' + labels + '</div>';
+        wrap.innerHTML = html;
+      }
+
+      // ---------- 渲染：关注学生横条 ----------
+      function renderFocus(students) {
+        var wrap = el('focusWrap');
+        var focus = (students || [])
+          .map(function (s) {
+            var dom = dominantBarrier(s.barrier_profile);
+            return { student: s, dom: dom };
+          })
+          .filter(function (x) { return x.dom !== null; })
+          .sort(function (a, b) { return b.dom.pct - a.dom.pct; })
+          .slice(0, 5);
+        el('focusHint').textContent = focus.length + ' 人';
+        if (!focus.length) {
+          wrap.innerHTML = '<div class="empty-note">暂无重点关注学生</div>';
+          return;
+        }
+        var cards = focus.map(function (x) {
+          var meta = BARRIER_META[x.dom.axis];
+          var trend = (x.student.score_trend || []).slice(-6);
+          var blocks = new Array(6).fill(0).map(function (_, i) {
+            var p = trend[i];
+            var filled = p !== undefined && p.score >= 60;
+            return '<span class="mini-block' + (filled ? ' filled' : '') + '"></span>';
+          }).join('');
+          return '<a class="student-card" href="students.html?student=' + encodeURIComponent(x.student.name) +
+            '" title="查看' + escapeHtml(x.student.name) + '详情">' +
+            '<div class="avatar" aria-hidden="true">' +
+            '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>' +
+            '</div>' +
+            '<div class="student-name">' + escapeHtml(x.student.name) + '</div>' +
+            '<span class="tag-pill ' + meta.cls + '">' + meta.label + '</span>' +
+            '<div class="mini-label">近期成绩趋势</div>' +
+            '<div class="mini-bar" aria-hidden="true">' + blocks + '</div>' +
+            '</a>';
+        }).join('');
+        wrap.innerHTML = '<div class="students-scroll">' + cards + '</div>';
+      }
+
+      function escapeHtml(s) {
+        return String(s === undefined || s === null ? '' : s)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      }
+
+      // ---------- 主渲染 ----------
+      function renderPanel(panel, students, gradeTrend) {
+        var ov = panel.class_overview || {};
+        var kpis = [
+          { v: ov.exam_count, label: '考试次数', suffix: '' },
+          { v: sumBarrier(panel.barrier_distribution), label: '关注学生', suffix: ' 人' },
+          { v: fmtPct(ov.recent_exam_avg), label: '班级平均分', suffix: '' },
+          { v: fmtPct(ov.knowledge_mastery), label: '知识点掌握率', suffix: '%' }
+        ];
+        var grid = el('kpiGrid');
+        grid.innerHTML = kpis.map(function (k) {
+          var shown = (k.v === null || k.v === undefined) ? '—' : k.v + k.suffix;
+          return '<div class="card kpi-card"><div class="kpi-number' + (k.v === null || k.v === undefined ? ' empty' : '') + '">' + shown + '</div><div class="kpi-label">' + k.label + '</div></div>';
+        }).join('');
+
+        var hasExam = (ov.exam_count || 0) > 0;
+        el('emptyState').style.display = hasExam ? 'none' : 'block';
+        el('panelBody').style.display = hasExam ? 'block' : 'none';
+        if (!hasExam) return;
+
+        renderBars(panel);
+        renderDonut(panel);
+        renderTrend(ov.avg_score_trend, gradeTrend);
+        renderFocus(students);
+      }
+
+      function sumBarrier(dist) {
+        if (!dist) return 0;
+        return (dist.concept || 0) + (dist.reading || 0) + (dist.expression || 0);
+      }
+
+      // ---------- 数据加载 ----------
+      function loadPanel(classId, gradeId) {
+        // 三个并行请求：面板 / 学生列表 / 年级趋势
+        return Promise.all([
+          ChemAPI.getClassPanel(classId),
+          ChemAPI.getClassStudents(classId),
+          gradeId ? fetchGradeTrend(gradeId) : Promise.resolve({ trend: [] })
+        ]);
+      }
+
+      function fetchGradeTrend(gradeId) {
+        if (gradeCache[gradeId]) return Promise.resolve(gradeCache[gradeId]);
+        return ChemAPI.getGradeTrend(gradeId).then(function (data) {
+          gradeCache[gradeId] = data;
+          return data;
+        });
+      }
+
+      function applyClass(classId) {
+        if (!classId) return;
+        var found = classes.find(function (c) { return String(c.id) === String(classId); });
+        if (!found) return;
+        document.title = '班级学情面板 · ' + found.name;
+        var gradeId = found.grade_id;
+        loadPanel(classId, gradeId).then(function (results) {
+          renderPanel(results[0], (results[1] && results[1].items) || [], (results[2] && results[2].trend) || []);
+        }).catch(function (err) {
+          el('kpiGrid').innerHTML = '<div class="card kpi-card"><div class="kpi-number empty">—</div><div class="kpi-label">加载失败</div></div>';
+          if (window.console) console.error(err);
+        });
+      }
+
+      function loadClasses() {
+        return ChemAPI.getClasses().then(function (data) {
+          classes = (data && data.items) || [];
+          var options = classes.map(function (c) {
+            return '<option value="' + c.id + '">' + escapeHtml(c.name) + '</option>';
+          }).join('');
+          classSelect.innerHTML = options || '<option value="">暂无班级</option>';
+          if (classes.length) {
+            classSelect.value = String(classes[0].id);
+            applyClass(classes[0].id);
+          }
+        }).catch(function (err) {
+          classSelect.innerHTML = '<option value="">班级加载失败</option>';
+          if (window.console) console.error(err);
+        });
+      }
+
+      classSelect.addEventListener('change', function () {
+        applyClass(this.value);
+      });
+
+      loadClasses();
+    })();
+  </script>
+</body>
+</html>

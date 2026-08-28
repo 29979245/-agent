@@ -184,12 +184,20 @@ def test_list_exams_paginated(client, db_session):
 
 
 def test_list_classes(client, db_session):
-    token = _teacher_token(client, db_session)
-    _, _, cls = _org(db_session)
+    """教师角色仅返回本校班级（school_id 组织链隔离）。"""
+    school, grade, cls = _org(db_session)
+    teacher = Teacher(school_id=school.id, name="王老师", phone="13800000003",
+                      status=TeacherStatus.approved)
+    db_session.add(teacher)
+    db_session.flush()
+    _account(db_session, "t_list", AccountRole.teacher, teacher.id)
+    token = client.post("/api/auth/login",
+                        json={"username": "t_list", "password": "Passw0rd!"}).json()["access_token"]
     resp = client.get("/api/classes", headers=_auth(token))
     assert resp.status_code == 200
     ids = [c["id"] for c in resp.json()["items"]]
-    assert cls.id in ids
+    assert ids == [cls.id]  # 仅本校班级，不含他校
+    assert resp.json()["items"][0]["grade_id"] == grade.id
 
 
 def test_results_endpoints(client, db_session):

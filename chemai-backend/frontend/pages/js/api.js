@@ -30,8 +30,15 @@
 
   function handleAuth(resp) {
     if (resp.status === 401) {
-      if (window.ChemAuth) window.ChemAuth.logout();
-      location.href = 'login.html';
+      if (window.ChemAuth) {
+        // logout 前先读角色，避免清空后无法推断跳转端
+        const isStudent = window.ChemAuth.isStudent();
+        const isParent = window.ChemAuth.isParent();
+        window.ChemAuth.logout();
+        window.ChemAuth.redirectToLogin(isStudent, isParent);
+      } else {
+        location.href = 'login.html';
+      }
       throw new ApiError('登录已过期，请重新登录', 401);
     }
     if (resp.status === 403) {
@@ -99,6 +106,83 @@
       throw new ApiError(extractDetail(data, resp.status), resp.status, data);
     }
     return resp.blob();
+  }
+
+  // multipart 上传（OCR 批量建批次）：FormData + Bearer，不设 Content-Type（浏览器自动带 boundary）
+  async function requestMultipart(path, formData) {
+    const opts = { method: 'POST' };
+    const token = getToken();
+    if (token) opts.headers = { Authorization: 'Bearer ' + token };
+
+    let resp;
+    try {
+      opts.body = formData;
+      resp = await fetch(baseURL + path, opts);
+    } catch (err) {
+      throw new ApiError('无法连接后端，请确认后端已启动（' + baseURL + '）', 0);
+    }
+    handleAuth(resp);
+
+    let data = null;
+    try {
+      data = await resp.json();
+    } catch (err) {
+      /* 非 JSON 响应 */
+    }
+    if (!resp.ok) {
+      throw new ApiError(extractDetail(data, resp.status), resp.status, data);
+    }
+    return data;
+  }
+
+  // SSE 流解析：按空行切分事件块，解析 event:/data: 行（data 可多行合并，容错 \r\n）
+  async function parseSSE(body, { onEvent }) {
+    const reader = body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    const emitBlock = (block) => {
+      let event = '';
+      const dataLines = [];
+      block.split('\n').forEach((line) => {
+        if (line.indexOf('event:') === 0) event = line.slice(6).trim();
+        else if (line.indexOf('data:') === 0) dataLines.push(line.slice(5).trim());
+      });
+      if (dataLines.length) onEvent(event, dataLines.join('\n'));
+    };
+    const flush = () => {
+      let idx;
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const block = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        emitBlock(block);
+      }
+    };
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      flush();
+    }
+    const rest = buffer.trim();
+    if (rest) emitBlock(rest);  // EOF 尾部未以空行结尾的事件（如 done）也需消费
+  }
+
+  // 家长端业务错误码 → 可读中文（后端 detail 已中文，此处统一口径并兜底）
+  const PARENT_ERROR_TEXT = {
+    BIND_CODE_MISMATCH: '绑定码不匹配，请向孩子确认当前有效的绑定码',
+    BINDING_EXISTS: '已存在有效的亲子绑定，无需重复绑定',
+    STUDENT_NOT_FOUND: '学生不存在，请核对学号',
+    BINDING_NOT_FOUND: '绑定不存在',
+    NOTIFICATION_NOT_FOUND: '通知不存在',
+    WEEKLY_REPORT_FAILED: '学习报告生成失败，请稍后重试',
+    AI_SUMMARY_FAILED: 'AI 解读生成失败，请稍后重试',
+  };
+
+  function parentErrorText(err) {
+    if (err && err.data && err.data.error_code && PARENT_ERROR_TEXT[err.data.error_code]) {
+      return PARENT_ERROR_TEXT[err.data.error_code];
+    }
+    return (err && err.message) || '请求失败，请稍后重试';
   }
 
   // 知识点静态列表：后端无 /api/knowledge 端点，前端内置（Tab 1 知识云）
@@ -190,6 +274,23 @@
     getClasses() {
       return request('/api/classes');
     },
+    getClassStudents(classId) {
+      return request('/api/classes/' + classId + '/students');
+    },
+
+    // ---- 学情面板（/api/panel）----
+    getClassPanel(classId) {
+      return request('/api/panel/class/' + classId);
+    },
+    getPanelTrend(classId) {
+      return request('/api/panel/class/' + classId + '/trend');
+    },
+    getGradeTrend(gradeId) {
+      return request('/api/panel/grade/' + gradeId + '/trend');
+    },
+    getStudentDetail(classId, studentId) {
+      return request('/api/panel/class/' + classId + '/student/' + studentId);
+    },
 
     // ---- 考试生命周期（/api/exam）----
     getExams(query) {
@@ -232,6 +333,226 @@
     // 试卷导出：docx/pdf 二进制下载
     exportExam(examId, { format = 'docx', with_answers = false } = {}) {
       return fetchBlob('/api/question/export/' + examId, { query: { format, with_answers } });
+    },
+
+    // ---- OCR 批改（/api/ocr + /api/grading）----
+    uploadOcrBatch(files) {
+      const formData = new FormData();
+      files.forEach((file) => formData.append('files', file));
+      return requestMultipart('/api/ocr/tasks/batch', formData);
+    },
+    getOcrBatchStatus(batchId) {
+      return request('/api/ocr/tasks/batch/' + batchId);
+    },
+    retryOcrTask(taskId) {
+      return request('/api/ocr/tasks/' + taskId + '/retry', { method: 'POST' });
+    },
+    getOcrBatches() {
+      return request('/api/ocr/tasks');
+    },
+    getOcrServicesStatus() {
+      return request('/api/ocr/services/status');
+    },
+    runGrading(payload) {
+      return request('/api/grading/run', { method: 'POST', body: payload });
+    },
+    saveGrading(payload) {
+      return request('/api/grading/save', { method: 'POST', body: payload });
+    },
+    getGradingResults(batchId) {
+      return request('/api/grading/results/' + batchId);
+    },
+
+    // ---- 学生练习（/api/practice）----
+    studentPracticeTasks(studentId) {
+      return request('/api/practice/student/' + studentId + '/tasks');
+    },
+    generatePractice() {
+      return request('/api/practice/generate', { method: 'POST' });
+    },
+    studentPracticeSubmit(practiceId, answers) {
+      return request('/api/practice/submit', {
+        method: 'POST',
+        body: { practice_id: practiceId, answers },
+      });
+    },
+    studentEffect(studentId) {
+      return request('/api/practice/effect/' + studentId);
+    },
+
+    // ---- 学生复习（/api/review）----
+    studentReviewTasks(studentId) {
+      return request('/api/review/tasks/' + studentId);
+    },
+    studentReviewSubmit(reviewTaskId, passed) {
+      return request('/api/review/submit', {
+        method: 'POST',
+        body: { review_task_id: reviewTaskId, passed },
+      });
+    },
+
+    // ---- 学生错题（/api/wrong-questions）----
+    studentWrongQuestions(studentId) {
+      return request('/api/wrong-questions/' + studentId);
+    },
+    studentWrongVariants(questionId, count) {
+      return request('/api/wrong-questions/variants', {
+        method: 'POST',
+        body: { question_id: questionId, count: count || 1 },
+      });
+    },
+    studentWrongTrain(studentId, answers) {
+      return request('/api/wrong-questions/train', {
+        method: 'POST',
+        body: { student_id: studentId, answers },
+      });
+    },
+    studentWrongMastered(questionId, studentId) {
+      return request('/api/wrong-questions/' + questionId + '/mastered', {
+        method: 'POST',
+        body: { student_id: studentId },
+      });
+    },
+
+    // ---- 学生报告（/api/report）----
+    getStudentReport(studentId) {
+      return request('/api/report/student/' + studentId);
+    },
+
+    // ---- 家长绑定码（/api/student）----
+    generateBindCode(studentId) {
+      return request('/api/student/' + studentId + '/bind-code', { method: 'POST' });
+    },
+
+    // ---- 家长端（/api/parent）----
+    parentLogin(phone, bind_code) {
+      return request('/api/parent/login', { method: 'POST', body: { phone, bind_code } });
+    },
+    children() {
+      return request('/api/parent/children');
+    },
+    childReport(studentId) {
+      return request('/api/parent/child/' + studentId + '/report');
+    },
+    childWeekly(studentId) {
+      return request('/api/parent/child/' + studentId + '/weekly');
+    },
+    weeklyGenerate(studentId) {
+      return request('/api/parent/child/' + studentId + '/weekly/generate', { method: 'POST' });
+    },
+    aiSummary(studentId) {
+      return request('/api/parent/child/' + studentId + '/report/ai-summary', { method: 'POST' });
+    },
+    bindChild(payload) {
+      return request('/api/parent/bind', { method: 'POST', body: payload });
+    },
+    unbindChild(bindingId) {
+      return request('/api/parent/bind/' + bindingId, { method: 'DELETE' });
+    },
+    notifications(limit, offset) {
+      return request('/api/parent/notifications', { query: { limit, offset } });
+    },
+    markNotificationRead(id) {
+      return request('/api/parent/notifications/' + id + '/read', { method: 'PUT' });
+    },
+    parentErrorText,
+
+    // ---- 修改密码（/api/auth）----
+    changePassword(payload) {
+      return request('/api/auth/change-password', { method: 'POST', body: payload });
+    },
+
+    // ---- AI 助教对话（/api/agent/chat/langgraph/stream，SSE 流式）----
+    // 返回 { cancel, done }：cancel() 中止连接；done 为 Promise，正常结束不 reject。
+    // onError(data)：data.degradable=true 表示端点未实现可降级；kind ∈ not_implemented/network/stream/http/canceled。
+    agentChatStream(payload, handlers = {}) {
+      const { onPhase, onText, onToolCall, onToolResult, onDone, onError } = handlers;
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+
+      const promise = (async () => {
+        const opts = {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+          signal: controller.signal,
+        };
+        const token = getToken();
+        if (token) opts.headers.Authorization = 'Bearer ' + token;
+        opts.body = JSON.stringify(payload);
+
+        let resp;
+        try {
+          resp = await fetch(baseURL + '/api/agent/chat/langgraph/stream', opts);
+        } catch (err) {
+          if (onError) {
+            onError(controller.signal.aborted
+              ? { degradable: false, kind: 'canceled', message: '已取消' }
+              : { degradable: false, kind: 'network', message: err.message });
+          }
+          return { canceled: controller.signal.aborted };
+        }
+
+        try {
+          handleAuth(resp);
+        } catch (err) {
+          // 401 已由 handleAuth 登出并跳转，静默结束；403 未跳转，需回传错误让 UI 恢复（否则 busy 卡死、发送钮永久禁用）
+          if (onError && err && err.status === 403) {
+            onError({ degradable: false, kind: 'forbidden', message: err.message });
+          }
+          return { canceled: false };
+        }
+
+        if (resp.status === 404) {
+          if (onError) onError({ degradable: true, kind: 'not_implemented', message: 'AI 助教后端尚未上线' });
+          return { canceled: false };
+        }
+        if (!resp.ok) {
+          let data = null;
+          try { data = await resp.json(); } catch (err) { /* 非 JSON 错误体 */ }
+          if (onError) onError({ degradable: false, kind: 'http', status: resp.status, message: extractDetail(data, resp.status) });
+          return { canceled: false };
+        }
+
+        let doneReceived = false;
+        let errored = false;  // SSE error 事件已回传，避免循环后重复触发"连接中断"
+        try {
+          await parseSSE(resp.body, {
+            onEvent: (eventName, dataText) => {
+              let dataObj = {};
+              try { dataObj = JSON.parse(dataText); } catch (err) { dataObj = { content: dataText }; }
+              const name = eventName || dataObj.type || '';
+              if (name === 'text' || name === 'token') {
+                if (onText) onText(dataObj.content || '');
+              } else if (name === 'phase' || name === 'thinking') {
+                if (onPhase) onPhase(dataObj.content || dataObj.phase || dataObj.state || name);
+              } else if (name === 'tool_call') {
+                if (onToolCall) onToolCall(dataObj);
+              } else if (name === 'tool_result') {
+                if (onToolResult) onToolResult(dataObj);
+              } else if (name === 'done') {
+                doneReceived = true;
+                if (onDone) onDone(dataObj);
+              } else if (name === 'error') {
+                errored = true;
+                if (onError) onError({ degradable: false, kind: 'stream_error', message: dataObj.message || '对话出错' });
+              } else if (name === 'planning' || name === 'executing' || name === 'reply' || name === 'awaiting_approval') {
+                if (onPhase) onPhase(name);
+              }
+            },
+          });
+          // 流干净结束但未收到 done 且未报错：视为连接中断（design D3），否则加载态悬挂
+          if (!doneReceived && !errored && !controller.signal.aborted && onError) {
+            onError({ degradable: false, kind: 'stream', message: '连接中断' });
+          }
+        } catch (err) {
+          if (!controller.signal.aborted && onError) {
+            onError({ degradable: false, kind: 'stream', message: err.message || '连接中断' });
+          }
+        }
+        return { canceled: controller.signal.aborted };
+      })();
+
+      return { cancel, done: promise };
     },
   };
 })();

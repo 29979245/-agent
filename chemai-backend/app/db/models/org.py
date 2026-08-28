@@ -2,9 +2,9 @@
 
 删除策略（D8）：组织链是数据隔离边界，删除受限（有子记录则拒绝）。
 """
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, String
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -100,6 +100,7 @@ class Student(Base):
         ForeignKey("class.id", ondelete="RESTRICT"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(50), nullable=False)
+    student_no: Mapped[str] = mapped_column(String(20), default="", index=True)  # 学号（OCR 批改模式1 按学号匹配学生）
     barrier_profile: Mapped[dict] = mapped_column(
         MutableDict.as_mutable(JSON), nullable=False, default=dict
     )
@@ -111,5 +112,14 @@ class Student(Base):
         MutableDict.as_mutable(JSON), default=dict
     )
     bind_code: Mapped[str] = mapped_column(String(6), default="")
+    weekly_report: Mapped[dict] = mapped_column(
+        MutableDict.as_mutable(JSON), default=dict
+    )  # 当周周报 JSON（summary/detail/advice/no_data）
+    weekly_report_week: Mapped[date | None] = mapped_column(
+        Date, nullable=True
+    )  # 周报归属周的周一（按周去重）
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=True
+    )  # 注册时间（no_login 从未作答分支依赖；迁移回填最近作答或 now，NULL 防御性跳过）
 
     class_: Mapped["Class"] = relationship(back_populates="students")

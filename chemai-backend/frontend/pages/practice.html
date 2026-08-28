@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>练习 · ChemAI 智辅化学</title>
+  <link rel="stylesheet" href="css/student.css" />
+  <link rel="stylesheet" href="vendor/katex.min.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- VIEW 1 — 任务列表 -->
+    <section id="view-list">
+      <header class="topbar">
+        <button class="icon-btn" aria-label="返回" onclick="location.href='ai-tutor.html'">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+        </button>
+        <div class="title">练习</div>
+        <div class="topbar-right">
+          <button class="topbar-action" id="btnGenerate" onclick="window.__generate()">生成新练习</button>
+          <span id="studentName"></span>
+        </div>
+      </header>
+      <nav class="tabs">
+        <button class="tab active" id="tabPending" onclick="showGroup('pending')">待完成</button>
+        <button class="tab" id="tabCompleted" onclick="showGroup('completed')">已完成</button>
+      </nav>
+      <div class="list" id="taskList"></div>
+    </section>
+
+    <!-- VIEW 2 — 答题 -->
+    <section id="view-answer" class="hidden">
+      <header class="topbar">
+        <button class="icon-btn" aria-label="返回" onclick="backToList()">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+        </button>
+        <div class="title" id="ansTitle">练习</div>
+        <div class="topbar-right"><span id="ansProgress">0/0</span></div>
+      </header>
+      <div class="question-area" id="questionArea"></div>
+      <div class="qnav">
+        <button class="btn-prev" id="btnPrev" onclick="goPrev()">上一题</button>
+        <button class="btn-next" id="btnNext" onclick="goNext()">下一题</button>
+      </div>
+    </section>
+
+    <!-- VIEW 3 — 结果 -->
+    <section id="view-result" class="hidden">
+      <header class="topbar">
+        <button class="icon-btn" aria-label="返回" onclick="backToList()">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+        </button>
+        <div class="title">练习结果</div>
+      </header>
+      <div id="resultBox"></div>
+    </section>
+
+    <nav class="tabbar" id="tabbar"></nav>
+  </div>
+
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/katex.min.js"></script>
+  <script src="vendor/mhchem.min.js"></script>
+  <script src="vendor/auto-render.min.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/katex.js"></script>
+  <script src="js/student-common.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      const SA = window.StudentApp;
+      const A = window.ChemAPI;
+
+      let tasks = [];
+      let group = 'pending';
+      let practice = null;   // { practice_id, title, question_count }
+      let questions = [];    // [{ question_id, content, options }]
+      let answers = {};      // question_id -> selected option text
+      let qIndex = 0;
+      let results = null;    // submit 响应
+      let opSeq = 0;         // 操作代际号：返回列表后使进行中的加载/提交失效
+
+      const $ = (id) => document.getElementById(id);
+
+      function renderChemRoot(root) { SA.renderChem(root); }
+
+      function storageKey(pid) { return 'practice_answers_' + pid; }
+
+      async function loadTasks() {
+        if (!SA.requireStudent()) return;
+        const me = window.ChemAuth.getUser ? window.ChemAuth.getUser() : null;
+        $('studentName').textContent = (me && me.name) || '';
+        const data = await A.studentPracticeTasks(SA.studentId());
+        tasks = data.tasks || [];
+        $('tabPending').textContent = '待完成(' + (data.pending_count || 0) + ')';
+        $('tabCompleted').textContent = '已完成(' + (data.completed_count || 0) + ')';
+        renderList();
+      }
+
+      function savedAnswers(pid) {
+        try { return JSON.parse(sessionStorage.getItem(storageKey(pid)) || '{}'); } catch (e) { return {}; }
+      }
+
+      async function generate() {
+        const btn = $('btnGenerate');
+        btn.disabled = true;
+        btn.textContent = '生成中…';
+        try {
+          await A.generatePractice();
+          SA.toast('已生成新练习');
+          await loadTasks();
+        } catch (err) {
+          if (!err) return;
+          if (err.status === 401) return;  // 已由 api.js 处理跳转
+          SA.toast('生成失败：' + ((err && err.message) || '请重试'));
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '生成新练习';
+        }
+      }
+
+      function renderList() {
+        const el = $('taskList');
+        const list = tasks.filter((t) => t.status === group || (group === 'completed' && t.status === 'completed'));
+        if (!list.length) {
+          el.innerHTML = '';
+          SA.emptyState(el, group === 'pending' ? '暂无待完成练习，点「生成新练习」开始吧' : '暂无已完成的练习');
+          if (group === 'pending') {
+            el.innerHTML += '<button class="card-btn" style="margin:8px 16px;width:calc(100% - 32px)" onclick="window.__generate()">生成新练习</button>';
+          }
+          return;
+        }
+        el.innerHTML = list.map((t) => {
+          const saved = savedAnswers(t.practice_id);
+          const done = Object.keys(saved).length;
+          const total = t.question_count || 0;
+          // 已完成任务的 sessionStorage 已在提交后清除，进度按 total/total 展示，避免 0/N 配满条
+          const shownDone = t.status === 'completed' ? total : done;
+          const pct = t.status === 'completed' ? 100 : Math.min(100, Math.round((done / Math.max(total, 1)) * 100));
+          const expired = t.status === 'expired';
+          const btnText = expired ? '已过期' : (t.status === 'completed' ? '已完成' : (done > 0 ? '继续练习' : '开始练习'));
+          const chips = [
+            '<span class="chip">选择题</span>',
+            '<span class="chip">' + SA.difficultyLabel(t.difficulty) + '</span>'
+          ];
+          (t.knowledge_points || []).slice(0, 2).forEach((kp) => {
+            chips.push('<span class="chip">' + SA.escapeHtml(kp) + '</span>');
+          });
+          return '<article class="card">' +
+            '<h2 class="card-title">' + SA.escapeHtml(t.title) + '</h2>' +
+            '<div class="chips">' + chips.join('') + '</div>' +
+            '<div class="progress-row">' +
+            '<div class="track"><div class="track-fill" style="width:' + pct + '%"></div></div>' +
+            '<span class="progress-text">' + shownDone + '/' + total + '</span>' +
+            '</div>' +
+            '<button class="card-btn" ' + ((expired || t.status === 'completed') ? 'disabled' : '') + ' onclick="window.__start(' + t.practice_id + ')">' + btnText + '</button>' +
+            '</article>';
+        }).join('');
+      }
+
+      function showGroup(g) {
+        group = g;
+        $('tabPending').className = 'tab' + (g === 'pending' ? ' active' : '');
+        $('tabCompleted').className = 'tab' + (g === 'completed' ? ' active' : '');
+        renderList();
+      }
+
+      async function startPractice(pid) {
+        const t = tasks.find((x) => x.practice_id === pid);
+        if (!t || t.status === 'completed' || t.status === 'expired') return;
+        const seq = ++opSeq;
+        practice = { practice_id: pid, title: t.title };
+        const data = await A.getExamQuestions(pid);
+        if (seq !== opSeq) return;  // 加载期间已返回列表，丢弃迟到响应
+        questions = data.items || [];
+        if (!questions.length) {    // 无题不切视图，避免卡在空白答题屏
+          SA.toast('该练习暂无题目');
+          return;
+        }
+        answers = savedAnswers(pid);
+        qIndex = 0;
+        $('ansTitle').textContent = t.title;
+        $('view-list').classList.add('hidden');
+        $('view-result').classList.add('hidden');
+        $('view-answer').classList.remove('hidden');
+        renderQuestion();
+      }
+
+      function renderQuestion() {
+        if (!questions.length) {
+          SA.toast('该练习暂无题目');
+          return;
+        }
+        const q = questions[qIndex];
+        $('ansProgress').textContent = (qIndex + 1) + '/' + questions.length;
+        const opts = (q.options || []).map((opt, i) => {
+          const letter = String.fromCharCode(65 + i);
+          const selected = answers[q.question_id] === opt;
+          const cls = selected ? ' option selected' : ' option';
+          return '<button class="' + cls + '" data-opt="' + SA.escapeHtml(opt) + '" onclick="window.__pick(this)">' +
+            '<span class="letter">' + letter + '</span><span class="otext">' + SA.renderMarkdown(opt) + '</span><span class="mark">✓</span></button>';
+        }).join('');
+        $('questionArea').innerHTML =
+          '<p class="stem">' + SA.renderMarkdown(q.content) + '</p>' +
+          '<div class="options">' + opts + '</div>';
+        renderChemRoot($('questionArea'));
+        $('btnPrev').disabled = qIndex === 0;
+        const isLast = qIndex === questions.length - 1;
+        $('btnNext').textContent = isLast ? '提交' : '下一题';
+      }
+
+      function pick(el) {
+        const q = questions[qIndex];
+        const opt = el.getAttribute('data-opt');
+        answers[q.question_id] = opt;
+        sessionStorage.setItem(storageKey(practice.practice_id), JSON.stringify(answers));
+        $('questionArea').querySelectorAll('.option').forEach((o) => o.classList.remove('selected'));
+        el.classList.add('selected');
+      }
+
+      function goPrev() {
+        if (qIndex > 0) { qIndex -= 1; renderQuestion(); }
+      }
+
+      function goNext() {
+        if (qIndex < questions.length - 1) { qIndex += 1; renderQuestion(); }
+        else submit();
+      }
+
+      async function submit() {
+        const missing = questions.filter((q) => !answers[q.question_id]).length;
+        if (missing > 0) {
+          const ok = confirm('还有 ' + missing + ' 题未作答，确定提交吗？');
+          if (!ok) return;
+        }
+        const payload = questions.map((q) => ({ question_id: q.question_id, selected_option: answers[q.question_id] || '' }));
+        const seq = opSeq;
+        const btn = $('btnNext');
+        btn.disabled = true;
+        btn.textContent = '提交中…';
+        try {
+          results = await A.studentPracticeSubmit(practice.practice_id, payload);
+          if (seq !== opSeq) return;  // 提交期间已返回列表，不强制翻到结果视图
+          sessionStorage.removeItem(storageKey(practice.practice_id));
+          showResult();
+        } catch (err) {
+          SA.toast('提交失败：' + ((err && err.message) || '请重试'));
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '提交';
+        }
+      }
+
+      function showResult() {
+        $('view-answer').classList.add('hidden');
+        $('view-result').classList.remove('hidden');
+        const acc = Math.round((results.accuracy || 0) * 100);
+        const rows = questions.map((q, i) => {
+          const r = (results.results || []).find((x) => x.question_id === q.question_id);
+          const ok = r && r.is_correct;
+          return '<article class="card" style="margin:0 16px 8px">' +
+            '<div class="q-top"><div class="q-badge">' + (i + 1) + '</div>' +
+            '<div class="q-summary">' + (ok ? '回答正确' : '回答错误') + '</div>' +
+            '<span class="q-tag ' + (ok ? 'tag-green' : 'tag-red') + '">' + (ok ? '✓' : '✗') + '</span></div>' +
+            (ok ? '' :
+              '<div class="q-detail">' +
+              (r && r.correct_answer ? '<div class="ans-row correct">正确答案：' + SA.renderMarkdown(r.correct_answer) + '</div>' : '') +
+              (r && r.analysis ? '<div class="ans-row wrong">解析：' + SA.renderMarkdown(r.analysis) + '</div>' : '') +
+              '</div>') +
+            '</article>';
+        }).join('');
+        $('resultBox').innerHTML =
+          '<div class="result-box"><div class="result-score">' + results.score + '/' + results.total + '</div>' +
+          '<div class="result-label">正确率 ' + acc + '%</div></div>' +
+          '<div class="section-title">逐题判定</div>' +
+          rows;
+        renderChemRoot($('resultBox'));
+      }
+
+      function backToList() {
+        opSeq += 1;  // 使进行中的加载/提交失效
+        $('view-answer').classList.add('hidden');
+        $('view-result').classList.add('hidden');
+        $('view-list').classList.remove('hidden');
+        loadTasks();
+      }
+
+      window.__start = startPractice;
+      window.__pick = pick;
+      window.__generate = generate;
+      window.goNext = goNext;
+      window.goPrev = goPrev;
+      window.showGroup = showGroup;
+      window.backToList = backToList;
+
+      SA.renderTabbar('practice');
+      loadTasks().catch((err) => {
+        if (!err) return;
+        if (err.status === 401) return;  // 已由 api.js 处理跳转
+        if (err.status === 403) {
+          $('taskList').innerHTML = '';
+          SA.emptyState($('taskList'), '无权限访问练习任务');
+          return;
+        }
+        $('taskList').innerHTML = '';
+        SA.emptyState($('taskList'), ((err && err.message) || '加载失败，请重试'));
+      });
+    })();
+  </script>
+</body>
+</html>

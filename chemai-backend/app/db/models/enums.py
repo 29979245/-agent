@@ -106,12 +106,11 @@ class ReviewLevel(str, enum.Enum):
 
 
 class ReviewTaskStatus(str, enum.Enum):
-    """复习任务状态。"""
+    """复习任务三态：待复习 / 超期 / 已掌握（终态）。"""
 
     pending = "pending"
-    in_progress = "in_progress"
-    completed = "completed"
-    archived = "archived"
+    overdue = "overdue"
+    done = "done"
 
 
 class ParentBindingStatus(str, enum.Enum):
@@ -131,11 +130,49 @@ class ParentBindingRelation(str, enum.Enum):
 
 
 class NotificationType(str, enum.Enum):
-    """家长通知类型：学习报告 / 预警提醒 / 教师消息。"""
+    """家长通知类型 5 类（文档 33 §9）：周报 / 成绩预警 / 学习计划 / 提醒 / 每日练习。"""
 
-    report = "report"
+    weekly_report = "weekly_report"
+    score_alert = "score_alert"
+    learning_plan = "learning_plan"
+    reminder = "reminder"
+    daily_report = "daily_report"
+
+
+class WarningType(str, enum.Enum):
+    """预警类型：连续未登录 / 成绩下滑 / 错题率过高。"""
+
+    no_login = "no_login"
+    score_drop = "score_drop"
+    high_error_rate = "high_error_rate"
+
+
+class WarningLevel(str, enum.Enum):
+    """预警级别：关注 / 警告 / 紧急。"""
+
+    info = "info"
     warning = "warning"
-    message = "message"
+    critical = "critical"
+
+
+class WarningStatus(str, enum.Enum):
+    """预警处理状态：待处理 / 已处理 / 已忽略。"""
+
+    pending = "pending"
+    processed = "processed"
+    ignored = "ignored"
+
+
+class WebhookEventType(str, enum.Enum):
+    """Webhook 事件类型 7 种（文档 33 §10.3）。"""
+
+    practice_assigned = "practice.assigned"
+    practice_completed = "practice.completed"
+    exam_created = "exam.created"
+    exam_graded = "exam.graded"
+    warning_triggered = "warning.triggered"
+    student_login = "student.login"
+    review_due = "review.due"
 
 
 class UploadSessionStatus(str, enum.Enum):

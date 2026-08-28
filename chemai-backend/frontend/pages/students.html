@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>学生管理 · 智辅化学</title>
+  <style>
+    :root {
+      --oxford: #002045;
+      --teal: #13696a;
+      --paper: #faf8f5;
+      --white: #ffffff;
+      --gray: #6b7280;
+      --border: #e5e1db;
+      --border-strong: #d6d0c4;
+      --purple: #7c3aed;
+      --blue: #2563eb;
+      --cyan: #0891b2;
+      --good: #16a34a;
+      --mid: #eab308;
+      --low: #ef4444;
+      --radius: 8px;
+    }
+
+    @font-face { font-family: "Cormorant Garamond"; src: url("vendor/fonts/cormorant-garamond-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+    @font-face { font-family: "Cormorant Garamond"; src: url("vendor/fonts/cormorant-garamond-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+    @font-face { font-family: "Cormorant Garamond"; src: url("vendor/fonts/cormorant-garamond-latin-700-normal.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+    @font-face { font-family: "IBM Plex Sans"; src: url("vendor/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+    @font-face { font-family: "IBM Plex Sans"; src: url("vendor/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+    @font-face { font-family: "IBM Plex Sans"; src: url("vendor/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+    @font-face { font-family: "IBM Plex Sans"; src: url("vendor/fonts/ibm-plex-sans-latin-700-normal.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+      background: var(--paper);
+      color: var(--oxford);
+      min-width: 1080px;
+      -webkit-font-smoothing: antialiased;
+    }
+    h1, h2, h3 { font-family: "Cormorant Garamond", Georgia, "Songti SC", "SimSun", serif; }
+
+    /* Header */
+    .site-header { background: var(--white); border-bottom: 1px solid var(--border); padding: 14px 40px; display: flex; align-items: center; gap: 16px; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark { color: var(--teal); display: flex; align-items: center; }
+    .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
+    .brand-name { font-family: "Cormorant Garamond", serif; font-size: 24px; font-weight: 700; color: var(--oxford); letter-spacing: .3px; }
+    .brand-sub { font-size: 12px; color: var(--gray); margin-top: 2px; }
+    .nav-links { display: flex; gap: 8px; margin-left: 32px; }
+    .nav-link { color: var(--gray); text-decoration: none; font-size: 14px; font-weight: 500; padding: 8px 14px; border-radius: var(--radius); transition: all .15s ease; }
+    .nav-link:hover { color: var(--teal); background: rgba(19,105,106,.06); }
+    .nav-link.active { color: var(--teal); background: rgba(19,105,106,.08); }
+    .user { margin-left: auto; text-align: right; font-size: 12px; color: var(--gray); line-height: 1.7; }
+    .logout { margin-top: 4px; background: none; border: 1px solid var(--border-strong); color: var(--oxford); border-radius: var(--radius); padding: 5px 14px; cursor: pointer; font-size: 12px; font-weight: 500; }
+    .logout:hover { border-color: var(--oxford); }
+
+    main { max-width: 1280px; margin: 0 auto; padding: 24px 32px 48px; }
+    .page-title { font-size: 32px; font-weight: 700; margin-bottom: 16px; }
+    section { margin-bottom: 16px; }
+
+    /* Stats bar */
+    .stats-card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 24px; display: flex; gap: 24px; }
+    .stat-item { flex: 1; }
+    .stat-label { font-size: 12px; color: var(--gray); margin-bottom: 6px; }
+    .stat-value { font-size: 24px; font-weight: 700; color: var(--oxford); }
+
+    /* Search & filter */
+    .search-wrap { position: relative; }
+    .search-input { width: 100%; background: var(--white); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 12px 16px 12px 44px; font-family: inherit; font-size: 14px; color: var(--oxford); }
+    .search-input::placeholder { color: var(--gray); }
+    .search-input:focus { outline: none; border-color: var(--teal); }
+    .search-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--gray); display: flex; }
+    .filter-row { display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--white); border: 1px solid var(--border-strong); border-radius: 999px; padding: 7px 14px; font-size: 13px; color: var(--gray); cursor: pointer; font-family: inherit; }
+    .chip.active { border-color: var(--teal); color: var(--teal); }
+    .chip select { border: none; background: none; color: inherit; font-family: inherit; font-size: 13px; cursor: pointer; outline: none; }
+
+    /* Student grid */
+    .student-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .student-card { background: var(--white); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+    .card-top { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .avatar { width: 40px; height: 40px; border-radius: 50%; background: #ece8e2; display: flex; align-items: center; justify-content: center; color: var(--gray); flex-shrink: 0; }
+    .stu-name { font-size: 16px; font-weight: 700; color: var(--oxford); }
+    .stu-class { font-size: 12px; color: var(--gray); margin-top: 2px; }
+    .obstacle-bar { height: 4px; width: 100%; border-radius: 999px; overflow: hidden; display: flex; margin-bottom: 14px; }
+    .seg-purple { background: var(--purple); }
+    .seg-blue { background: var(--blue); }
+    .seg-cyan { background: var(--cyan); }
+    .trend-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+    .trend-label { font-size: 12px; color: var(--gray); }
+    .trend-dots { display: flex; gap: 6px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot-good { background: var(--good); }
+    .dot-mid { background: var(--mid); }
+    .dot-low { background: var(--low); }
+    .btn { font-family: inherit; font-size: 13px; border-radius: var(--radius); cursor: pointer; border: none; }
+    .btn-detail { background: var(--teal); color: #fff; padding: 8px 18px; font-weight: 500; }
+    .btn-detail:hover { background: #0f5859; }
+    .empty-state { background: var(--white); border: 1px dashed var(--border-strong); border-radius: var(--radius); padding: 48px 0; text-align: center; color: var(--gray); font-size: 14px; }
+
+    /* Pagination */
+    .pagination { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 24px; }
+    .page-btn { font-family: inherit; font-size: 13px; color: var(--gray); background: transparent; border: none; cursor: pointer; padding: 6px 10px; }
+    .page-btn:disabled { color: var(--border-strong); cursor: default; }
+    .page-num { min-width: 32px; height: 32px; border-radius: var(--radius); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; color: var(--gray); background: transparent; border: none; cursor: pointer; font-family: inherit; }
+    .page-num.current { background: var(--oxford); color: #fff; font-weight: 600; }
+    .page-ellipsis { color: var(--gray); font-size: 13px; padding: 0 4px; }
+
+    /* Drawer */
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); opacity: 0; transition: opacity .3s ease; z-index: 50; }
+    .overlay.visible { opacity: 1; }
+    .drawer { position: fixed; top: 0; right: -480px; width: 480px; height: 100vh; background: var(--white); box-shadow: -8px 0 30px rgba(0,0,0,0.12); transition: right .3s ease; z-index: 60; overflow-y: auto; }
+    .drawer-inner { padding: 20px 24px; }
+    .drawer-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
+    .drawer-name { font-size: 24px; font-weight: 700; color: var(--oxford); }
+    .close-btn { background: transparent; border: none; font-size: 24px; color: var(--gray); cursor: pointer; line-height: 1; }
+    .drawer-section-title { font-size: 13px; font-weight: 600; color: var(--oxford); margin: 20px 0 10px; }
+    .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .info-label { color: var(--gray); }
+    .info-value { color: var(--oxford); font-weight: 500; }
+    .bar-block { margin-bottom: 12px; }
+    .bar-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--oxford); margin-bottom: 5px; }
+    .bar-track { height: 8px; width: 100%; background: #f0ece6; border-radius: 999px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 999px; }
+    .chart-box { background: var(--paper); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 12px 8px; }
+    .x-labels { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--gray); }
+    .tag-wrap { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tag { background: #f0ece6; color: var(--gray); border-radius: 999px; padding: 5px 12px; font-size: 12px; }
+    .action-row { display: flex; gap: 10px; margin-top: 24px; }
+    .btn-teal-fill { background: var(--teal); color: #fff; padding: 10px 14px; font-weight: 500; flex: 1; }
+    .btn-teal-fill:hover { background: #0f5859; }
+    .btn-teal-outline { background: var(--white); color: var(--teal); border: 1px solid var(--teal); padding: 10px 14px; font-weight: 500; flex: 1; }
+    .btn-gray-outline { background: var(--white); color: var(--gray); border: 1px solid var(--border); padding: 10px 14px; font-weight: 500; flex: 1; }
+
+    @media (max-width: 900px) {
+      .student-grid { grid-template-columns: 1fr; }
+      .site-header { flex-wrap: wrap; }
+      .nav-links { margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 3h6" /><path d="M10 3v6.5L5.2 17.2A2 2 0 0 0 6.9 20h10.2a2 2 0 0 0 1.7-2.8L14 9.5V3" /><path d="M7.5 14h9" />
+        </svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">智辅化学</span>
+        <span class="brand-sub">学生管理 · Student Management</span>
+      </span>
+    </div>
+    <nav class="nav-links">
+      <a class="nav-link" href="panel.html">学情面板</a>
+      <a class="nav-link active" href="students.html">学生管理</a>
+    </nav>
+    <div class="user">
+      <div id="userName">教师</div>
+      <button class="logout" id="logoutBtn">退出登录</button>
+    </div>
+  </header>
+
+  <main>
+    <h1 class="page-title">学生管理</h1>
+
+    <section>
+      <div class="stats-card">
+        <div class="stat-item"><div class="stat-label">总人数</div><div class="stat-value" id="statTotal">—</div></div>
+        <div class="stat-item"><div class="stat-label">活跃学生</div><div class="stat-value" id="statActive">—</div></div>
+        <div class="stat-item"><div class="stat-label">关注学生</div><div class="stat-value" id="statFocus">—</div></div>
+        <div class="stat-item"><div class="stat-label">班级平均</div><div class="stat-value" id="statAvg">—</div></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="search-wrap">
+        <span class="search-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+        </span>
+        <input class="search-input" id="searchInput" type="text" placeholder="搜索学生姓名..." aria-label="搜索学生姓名" />
+      </div>
+      <div class="filter-row">
+        <button class="chip active" id="chipClass">
+          <span>班级</span>
+          <select id="filterClass" aria-label="按班级筛选"><option value="">全部班级</option></select>
+        </button>
+        <button class="chip" id="chipBarrier">
+          <span>障碍类型</span>
+          <select id="filterBarrier" aria-label="按障碍类型筛选">
+            <option value="">全部障碍</option>
+            <option value="concept">概念理解</option>
+            <option value="reading">审题障碍</option>
+            <option value="expression">表述障碍</option>
+          </select>
+        </button>
+        <button class="chip" id="chipActive">
+          <span>活跃状态</span>
+          <select id="filterActive" aria-label="按活跃状态筛选">
+            <option value="">全部状态</option>
+            <option value="active">活跃</option>
+            <option value="inactive">不活跃</option>
+          </select>
+        </button>
+      </div>
+    </section>
+
+    <section>
+      <div class="student-grid" id="studentGrid"></div>
+      <div class="empty-state" id="emptyState" style="display:none;">未找到匹配的学生</div>
+    </section>
+
+    <nav class="pagination" id="pagination" aria-label="分页"></nav>
+  </main>
+
+  <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+  <aside class="drawer" id="drawer" aria-label="学生详情">
+    <div class="drawer-inner">
+      <div class="drawer-header">
+        <div class="drawer-name" id="drawerName">—</div>
+        <button class="close-btn" onclick="closeDrawer()" aria-label="关闭">&times;</button>
+      </div>
+      <div class="info-row"><span class="info-label">学号</span><span class="info-value" id="drawerId">—</span></div>
+      <div class="info-row"><span class="info-label">班级</span><span class="info-value" id="drawerClass">—</span></div>
+      <div class="info-row"><span class="info-label">活跃状态</span><span class="info-value" id="drawerActive">—</span></div>
+
+      <div class="drawer-section-title">障碍分布</div>
+      <div id="drawerBarriers"></div>
+
+      <div class="drawer-section-title">成绩趋势</div>
+      <div class="chart-box" id="drawerTrendBox"></div>
+
+      <div class="drawer-section-title">薄弱知识点</div>
+      <div class="tag-wrap" id="drawerTags"></div>
+
+      <div class="action-row">
+        <button class="btn btn-teal-fill" disabled title="功能建设中">生成学习计划</button>
+        <button class="btn btn-teal-outline" disabled title="功能建设中">发送通知</button>
+        <button class="btn btn-gray-outline" disabled title="功能建设中">编辑信息</button>
+      </div>
+    </div>
+  </aside>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      var ChemAPI = window.ChemAPI;
+      var ChemAuth = window.ChemAuth;
+
+      if (!ChemAuth.requireAuth()) return;
+      if (!ChemAuth.isTeacherLike()) { location.href = 'forbidden.html?side=teacher'; return; }
+
+      var user = ChemAuth.getUser() || {};
+      document.getElementById('userName').textContent = user.name || '教师';
+      document.getElementById('logoutBtn').addEventListener('click', function () {
+        ChemAuth.logout();
+        location.href = 'login.html';
+      });
+
+      var PAGE_SIZE = 20;
+      var allStudents = [];   // 合并全校学生，附 className
+      var classAvgById = {};  // classId -> recent_exam_avg
+      var classes = [];
+      var currentPage = 1;
+
+      function el(id) { return document.getElementById(id); }
+      function esc(s) {
+        return String(s === undefined || s === null ? '' : s)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      }
+      function num(v) { return v === null || v === undefined ? 0 : Number(v) || 0; }
+
+      function dominantBarrier(profile) {
+        if (!profile) return null;
+        var best = null, bestVal = 0;
+        ['concept', 'reading', 'expression'].forEach(function (k) {
+          var v = num(profile[k]);
+          if (v > bestVal) { bestVal = v; best = k; }
+        });
+        return bestVal > 0 ? best : null;
+      }
+
+      function scoreColor(score) { return score >= 60 ? 'dot-good' : score >= 40 ? 'dot-mid' : 'dot-low'; }
+
+      // ---------- 统计栏 ----------
+      function renderStats() {
+        var active = allStudents.filter(function (s) { return s.is_active; }).length;
+        var focus = allStudents.filter(function (s) { return dominantBarrier(s.barrier_profile); }).length;
+        el('statTotal').textContent = allStudents.length;
+        el('statActive').textContent = active;
+        el('statFocus').textContent = focus;
+        var avgs = Object.keys(classAvgById).map(function (k) { return classAvgById[k]; }).filter(function (v) { return v !== null && v !== undefined; });
+        el('statAvg').textContent = avgs.length ? (avgs.reduce(function (a, b) { return a + b; }, 0) / avgs.length).toFixed(1) : '—';
+      }
+
+      // ---------- 筛选 ----------
+      function getFilter() {
+        var fClass = el('filterClass').value;
+        var fBarrier = el('filterBarrier').value;
+        var fActive = el('filterActive').value;
+        var q = (el('searchInput').value || '').trim();
+        return { fClass: String(fClass), fBarrier: String(fBarrier), fActive: String(fActive), q: q };
+      }
+
+      function applyFilters() {
+        var f = getFilter();
+        var list = allStudents.filter(function (s) {
+          if (f.fClass && String(s.classId) !== f.fClass) return false;
+          if (f.fBarrier) {
+            var dom = dominantBarrier(s.barrier_profile);
+            if (dom !== f.fBarrier) return false;
+          }
+          if (f.fActive === 'active' && !s.is_active) return false;
+          if (f.fActive === 'inactive' && s.is_active) return false;
+          if (f.q && s.name.indexOf(f.q) < 0) return false;
+          return true;
+        });
+        return list;
+      }
+
+      function renderGrid() {
+        var list = applyFilters();
+        currentPage = 1;
+        el('emptyState').style.display = list.length ? 'none' : 'block';
+        el('studentGrid').innerHTML = list.slice(0, PAGE_SIZE).map(cardHtml).join('');
+        el('pagination').innerHTML = pagerHtml(list.length);
+        renderStats();
+      }
+
+      function cardHtml(s) {
+        var p = s.barrier_profile || {};
+        var c = num(p.concept), r = num(p.reading), e = num(p.expression);
+        var sum = c + r + e;
+        if (!sum) { c = 0; r = 0; e = 0; sum = 1; }
+        var segs = '<div class="seg-purple" style="width:' + (c / sum * 100).toFixed(1) + '%"></div>' +
+          '<div class="seg-blue" style="width:' + (r / sum * 100).toFixed(1) + '%"></div>' +
+          '<div class="seg-cyan" style="width:' + (e / sum * 100).toFixed(1) + '%"></div>';
+        var trend = (s.score_trend || []).slice(-6);
+        var dots = trend.map(function (p2) {
+          return '<i class="dot ' + scoreColor(p2.score) + '"></i>';
+        }).join('');
+        return '<div class="student-card" data-id="' + s.id + '" data-class-id="' + s.classId + '">' +
+          '<div class="card-top">' +
+          '<div class="avatar" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg></div>' +
+          '<div><div class="stu-name">' + esc(s.name) + '</div><div class="stu-class">' + esc(s.className) + '</div></div>' +
+          '</div>' +
+          '<div class="obstacle-bar">' + segs + '</div>' +
+          '<div class="trend-row"><span class="trend-label">近期成绩趋势</span><span class="trend-dots">' + dots + '</span></div>' +
+          '<button class="btn btn-detail" data-action="detail">详情</button>' +
+          '</div>';
+      }
+
+      function pagerHtml(total) {
+        var pages = Math.ceil(total / PAGE_SIZE);
+        if (pages <= 1) return '';
+        var html = '<button class="page-btn" data-page="prev" ' + (currentPage <= 1 ? 'disabled' : '') + '>上一页</button>';
+        for (var i = 1; i <= pages; i++) {
+          if (pages > 7 && i > 2 && i < pages - 1 && i !== currentPage) {
+            if (i === 3) html += '<span class="page-ellipsis">…</span>';
+            continue;
+          }
+          html += '<button class="page-num' + (i === currentPage ? ' current' : '') + '" data-page="' + i + '">' + i + '</button>';
+        }
+        html += '<button class="page-btn" data-page="next" ' + (currentPage >= pages ? 'disabled' : '') + '>下一页</button>';
+        return html;
+      }
+
+      function gotoPage(page) {
+        var list = applyFilters();
+        var pages = Math.ceil(list.length / PAGE_SIZE) || 1;
+        if (page < 1) page = 1;
+        if (page > pages) page = pages;
+        currentPage = page;
+        var start = (page - 1) * PAGE_SIZE;
+        el('studentGrid').innerHTML = list.slice(start, start + PAGE_SIZE).map(cardHtml).join('');
+        el('pagination').innerHTML = pagerHtml(list.length);
+      }
+
+      // ---------- 抽屉 ----------
+      function openDrawer(student, className) {
+        el('drawerName').textContent = student.name;
+        el('drawerId').textContent = student.id;
+        el('drawerClass').textContent = className;
+        el('drawerActive').textContent = student.is_active ? '活跃' : '不活跃';
+        el('drawerActive').style.color = student.is_active ? '#16a34a' : '#6b7280';
+        el('drawerBarriers').innerHTML = barrierBars(student.barrier_profile);
+        el('drawerTags').innerHTML = '<span class="tag">加载中…</span>';
+        el('drawerTrendBox').innerHTML = '<div class="muted" style="font-size:12px">加载中…</div>';
+        var overlay = el('overlay');
+        overlay.style.display = 'block';
+        void overlay.offsetWidth;
+        overlay.classList.add('visible');
+        el('drawer').style.right = '0';
+        // 按需加载详情（薄弱点 + 完整趋势）
+        ChemAPI.getStudentDetail(student.classId, student.id).then(function (d) {
+          el('drawerTags').innerHTML = (d.weak_knowledge_points && d.weak_knowledge_points.length)
+            ? d.weak_knowledge_points.map(function (t) { return '<span class="tag">' + esc(t) + '</span>'; }).join('')
+            : '<span class="tag">暂无记录</span>';
+          el('drawerTrendBox').innerHTML = trendSvg(d.score_trend || []);
+        }).catch(function (err) {
+          el('drawerTags').innerHTML = '<span class="tag">加载失败</span>';
+          if (window.console) console.error(err);
+        });
+      }
+
+      function barrierBars(profile) {
+        var p = profile || {};
+        var meta = [
+          { k: 'concept', label: '概念理解', color: '#7c3aed' },
+          { k: 'reading', label: '审题障碍', color: '#2563eb' },
+          { k: 'expression', label: '表述障碍', color: '#0891b2' }
+        ];
+        return meta.map(function (m) {
+          var v = Math.round(num(p[m.k]) * 100);
+          return '<div class="bar-block"><div class="bar-head"><span>' + m.label + '</span><span>' + v + '%</span></div>' +
+            '<div class="bar-track"><div class="bar-fill" style="width:' + v + '%;background:' + m.color + '"></div></div></div>';
+        }).join('');
+      }
+
+      function trendSvg(points) {
+        if (!points || !points.length) {
+          return '<div style="font-size:12px;color:#6b7280;padding:20px 0;text-align:center">暂无成绩记录</div>';
+        }
+        var W = 420, H = 140, PAD_X = 20, PAD_TOP = 12, PAD_BOT = 18;
+        var vals = points.map(function (p) { return p.score; });
+        var yMin = Math.max(0, Math.floor(Math.min.apply(null, vals)) - 10);
+        var yMax = Math.min(100, Math.ceil(Math.max.apply(null, vals)) + 10);
+        var range = (yMax - yMin) || 1;
+        var innerW = W - PAD_X * 2, innerH = H - PAD_TOP - PAD_BOT;
+        function pt(p, i) {
+          var x = points.length === 1 ? W / 2 : PAD_X + i / (points.length - 1) * innerW;
+          var y = PAD_TOP + (yMax - p.score) / range * innerH;
+          return { x: x, y: y };
+        }
+        var coords = points.map(pt);
+        var poly = coords.map(function (c) { return c.x.toFixed(1) + ',' + c.y.toFixed(1); }).join(' ');
+        var dots = coords.map(function (c) { return '<circle cx="' + c.x.toFixed(1) + '" cy="' + c.y.toFixed(1) + '" r="3.5" fill="#13696a" />'; }).join('');
+        var lines = [0.25, 0.5, 0.75].map(function (f) {
+          var y = PAD_TOP + f * innerH;
+          return '<line x1="0" y1="' + y + '" x2="' + W + '" y2="' + y + '" stroke="#e5e1db" stroke-width="1" />';
+        }).join('');
+        var labels = points.map(function (p) {
+          return '<span>' + String(p.exam_date).slice(5).replace('-', '/') + '</span>';
+        }).join('');
+        return '<svg width="100%" height="140" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="成绩趋势折线图">' +
+          lines +
+          '<polyline points="' + poly + '" fill="none" stroke="#13696a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />' +
+          dots + '</svg>' +
+          '<div class="x-labels">' + labels + '</div>';
+      }
+
+      window.closeDrawer = function closeDrawer() {
+        el('drawer').style.right = '-480px';
+        el('overlay').classList.remove('visible');
+        setTimeout(function () { el('overlay').style.display = 'none'; }, 300);
+      };
+
+      // ---------- 事件绑定 ----------
+      el('searchInput').addEventListener('input', renderGrid);
+      el('filterClass').addEventListener('change', renderGrid);
+      el('filterBarrier').addEventListener('change', renderGrid);
+      el('filterActive').addEventListener('change', renderGrid);
+      el('studentGrid').addEventListener('click', function (ev) {
+        var btn = ev.target.closest('[data-action="detail"]');
+        if (!btn) return;
+        var card = btn.closest('.student-card');
+        var sid = card.getAttribute('data-id');
+        var student = allStudents.find(function (s) { return String(s.id) === sid; });
+        if (student) openDrawer(student, student.className);
+      });
+      el('pagination').addEventListener('click', function (ev) {
+        var btn = ev.target.closest('[data-page]');
+        if (!btn || btn.disabled) return;
+        var p = btn.getAttribute('data-page');
+        if (p === 'prev') gotoPage(currentPage - 1);
+        else if (p === 'next') gotoPage(currentPage + 1);
+        else gotoPage(Number(p));
+      });
+      document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') closeDrawer();
+      });
+
+      // ---------- 数据加载：全校各班级学生 + 班级均分 ----------
+      function loadAll() {
+        return ChemAPI.getClasses().then(function (data) {
+          classes = (data && data.items) || [];
+          var classOpts = classes.map(function (c) {
+            return '<option value="' + c.id + '">' + esc(c.name) + '</option>';
+          }).join('');
+          el('filterClass').innerHTML = '<option value="">全部班级</option>' + classOpts;
+          // 每班并行取学生列表 + 面板 overview
+          var tasks = classes.map(function (c) {
+            return Promise.all([
+              ChemAPI.getClassStudents(c.id).then(function (d) {
+                return (d && d.items || []).map(function (s) {
+                  s.classId = c.id;
+                  s.className = c.name;
+                  return s;
+                });
+              }),
+              ChemAPI.getClassPanel(c.id).then(function (d) {
+                return (d && d.class_overview) ? d.class_overview.recent_exam_avg : null;
+              }).catch(function () { return null; })
+            ]);
+          });
+          return Promise.all(tasks).then(function (results) {
+            allStudents = [];
+            classAvgById = {};
+            results.forEach(function (r, i) {
+              allStudents = allStudents.concat(r[0]);
+              classAvgById[classes[i].id] = r[1];
+            });
+            renderGrid();
+            return true;
+          });
+        });
+      }
+
+      loadAll().then(function () {
+        // 深链：?student=<姓名> 自动打开对应抽屉
+        var name = new URLSearchParams(window.location.search).get('student');
+        if (!name) return;
+        var s = allStudents.find(function (x) { return x.name === name; });
+        if (s) {
+          openDrawer(s, s.className);
+          // 高亮并滚动到该生卡片
+          var card = document.querySelector('.student-card[data-id="' + s.id + '"]');
+          if (card) card.style.borderColor = '#13696a';
+        }
+      }).catch(function (err) {
+        el('studentGrid').innerHTML = '<div class="empty-state">学生数据加载失败</div>';
+        if (window.console) console.error(err);
+      });
+    })();
+  </script>
+</body>
+</html>

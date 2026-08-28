@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import ForbiddenError
 from app.core.permissions import require_permission
-from app.db.models import Account, Class
+from app.db.models import Account, Class, Grade, Teacher
 from app.db.models.enums import ExamType
 from app.db.session import get_db
 from app.services.question.exam_service import ExamService
@@ -77,8 +77,34 @@ def list_classes(
     request: Request,
     db: Session = Depends(get_db),
 ) -> dict:
-    rows = db.query(Class).order_by(Class.id).all()
-    return {"items": [{"id": c.id, "name": c.name} for c in rows]}
+    """班级列表：教师角色仅返回本校班级（Class→Grade→school_id 隔离），其余角色全量。"""
+    query = db.query(Class)
+    if request.state.user.role == "teacher":
+        teacher = db.get(Teacher, _role_id(db, request.state.user))
+        if teacher is None:
+            return {"items": []}
+        query = (
+            query.join(Grade, Class.grade_id == Grade.id)
+            .filter(Grade.school_id == teacher.school_id)
+        )
+    rows = query.order_by(Class.id).all()
+    return {
+        "items": [{"id": c.id, "name": c.name, "grade_id": c.grade_id} for c in rows]
+    }
+
+
+@classes_router.get("/classes/{class_id}/students")
+@require_permission("analysis", "read")
+def list_class_students(
+    request: Request, class_id: int, db: Session = Depends(get_db)
+) -> dict:
+    """班级学生列表（面板渲染 KPI 与重点关注横条）；教师仅本校、student 拒绝。"""
+    from app.api.v1.panel import _ensure_not_student, _require_class_in_teacher_school
+    from app.services.analytics.panel_service import class_students
+
+    _ensure_not_student(request)
+    _require_class_in_teacher_school(db, request, class_id)
+    return class_students(db, class_id)
 
 
 @exam_router.post("/create")

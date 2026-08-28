@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>家长登录 · ChemAI 智辅化学</title>
+  <style>
+    :root {
+      --oxford: #002045;
+      --teal: #13696a;
+      --paper: #faf8f5;
+      --ink: #1f2937;
+      --muted: #6b7280;
+      --congo: #b43c28;
+      --line: rgba(0, 32, 69, .12);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+      background: var(--paper); color: var(--ink); font-size: 14px;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    }
+    .container {
+      width: 360px; background: var(--paper);
+      padding: 40px 24px 28px;
+    }
+    /* 1) Logo area */
+    .logo { text-align: center; margin-bottom: 28px; }
+    .brand-title {
+      font-family: "Cormorant Garamond", serif;
+      font-size: 22px; font-weight: 700; color: var(--oxford); line-height: 1.2;
+    }
+    .pill {
+      display: inline-block; background: var(--teal); color: #fff;
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 12px; font-weight: 500; border-radius: 9999px;
+      padding: 2px 10px; margin-left: 8px; vertical-align: middle;
+    }
+    .logo-helper { font-size: 13px; color: var(--muted); margin-top: 12px; line-height: 1.6; }
+    /* 2) Form area */
+    .input-wrap { position: relative; }
+    .input-wrap + .input-wrap { margin-top: 12px; }
+    .field {
+      width: 100%; height: 48px; border: 1px solid var(--line); border-radius: 8px;
+      padding: 0 14px; font-family: inherit; font-size: 15px; color: var(--ink);
+      background: #fff; outline: none; transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    .field::placeholder { color: #aaa; }
+    .field:focus { border-color: var(--oxford); box-shadow: 0 0 0 3px rgba(0, 32, 69, .1); }
+    .field.err { border-color: var(--congo); }
+    .code-hint { font-size: 12px; color: #aaa; margin-top: 4px; }
+    .login-btn {
+      width: 100%; height: 48px; background: var(--oxford); color: #fff;
+      font-family: inherit; font-size: 16px; font-weight: 500; border: none; border-radius: 8px;
+      margin-top: 24px; cursor: pointer; transition: background .15s ease;
+    }
+    .login-btn:hover { background: #002f5e; }
+    .login-btn:disabled { opacity: .6; cursor: not-allowed; }
+    .msg { min-height: 20px; font-size: 13px; margin-top: 12px; text-align: center; color: var(--congo); }
+    /* 3) Explainer card */
+    .explainer {
+      background: rgba(19, 105, 106, .08); border: 1px solid rgba(19, 105, 106, .2);
+      border-radius: 8px; padding: 12px 14px; margin-top: 20px;
+    }
+    .explainer-title { font-size: 14px; font-weight: 600; color: var(--teal); }
+    .explainer-body { font-size: 13px; color: var(--muted); margin-top: 4px; line-height: 1.6; }
+    /* 4) Bottom text */
+    .bottom { text-align: center; margin-top: 28px; }
+    .version { font-size: 12px; color: #bbb; }
+    .shake { animation: shake .4s; }
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-6px); }
+      75% { transform: translateX(6px); }
+    }
+    .session-notice {
+      display: none; font-size: 12px; line-height: 1.7;
+      background: rgba(180, 60, 40, .06); border: 1px solid rgba(180, 60, 40, .25);
+      border-radius: 6px; padding: 10px 12px; margin-bottom: 16px; color: var(--congo);
+    }
+    .session-notice .act { display: block; margin-top: 8px; text-align: right; }
+    .session-notice .act a,
+    .session-notice .act button {
+      font-size: 12px; color: var(--teal); background: none; border: none;
+      cursor: pointer; text-decoration: underline; font-family: inherit; padding: 0 4px;
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <!-- 1) Logo area -->
+    <header class="logo">
+      <div class="brand-title">ChemAI 智辅化学<span class="pill">家长端</span></div>
+      <p class="logo-helper">使用手机号和绑定码登录，查看孩子的学习情况</p>
+    </header>
+
+    <!-- 2) Form area -->
+    <div id="sessionNotice" class="session-notice"></div>
+    <form class="form" id="loginForm" autocomplete="off">
+      <div class="input-wrap">
+        <input id="phone" class="field" type="tel" inputmode="tel" maxlength="11" placeholder="请输入手机号" aria-label="手机号" />
+      </div>
+      <div class="input-wrap">
+        <input id="code" class="field" type="text" inputmode="text" maxlength="6" placeholder="请输入6位绑定码" aria-label="绑定码" />
+      </div>
+      <p class="code-hint">绑定码由字母和数字组成，可在孩子 App 的"我的"页面找到</p>
+      <button id="submitBtn" class="login-btn" type="submit">登 录</button>
+      <div id="msg" class="msg" aria-live="polite"></div>
+    </form>
+
+    <!-- 3) Explainer card -->
+    <section class="explainer">
+      <h2 class="explainer-title">什么是绑定码？</h2>
+      <p class="explainer-body">绑定码是 6 位字母数字码，用于关联您和孩子的账号。请让孩子在他的 ChemAI App 中查看。</p>
+    </section>
+
+    <!-- 4) Bottom text -->
+    <footer class="bottom">
+      <p class="version">v0.4.0</p>
+    </footer>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      const form = document.getElementById('loginForm');
+      const submitBtn = document.getElementById('submitBtn');
+      const msg = document.getElementById('msg');
+      const phone = document.getElementById('phone');
+      const code = document.getElementById('code');
+
+      function show(text, isErr) {
+        msg.textContent = text || '';
+      }
+      function shake() {
+        form.classList.remove('shake');
+        void form.offsetWidth;
+        form.classList.add('shake');
+      }
+      function markErr(input) {
+        input.classList.add('err');
+        input.addEventListener('input', function onFix() {
+          input.classList.remove('err');
+          input.removeEventListener('input', onFix);
+        }, { once: true });
+      }
+
+      // 绑定码：仅字母数字、限长 6（后端 32 字符集）
+      code.addEventListener('input', function () {
+        this.value = this.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 6);
+      });
+      // 手机号：仅数字、限长 11
+      phone.addEventListener('input', function () {
+        this.value = this.value.replace(/\D/g, '').slice(0, 11);
+      });
+
+      // 已有会话：提示并可直达，需先退出才能切换身份
+      (function () {
+        const user = window.ChemAuth.getUser();
+        if (!user || !window.ChemAuth.getToken()) return;
+        const notice = document.getElementById('sessionNotice');
+        const name = user.name || '';
+        if (user.role === 'parent') {
+          notice.innerHTML = '当前已登录家长端：' + name + '。' +
+            '<span class="act"><a href="parent.html">进入家长中心</a> · <button id="sessionLogout">退出登录</button></span>';
+        } else {
+          notice.innerHTML = '当前已登录其他账号：' + name + '。如需登录家长端，请先退出当前账号。' +
+            '<span class="act"><button id="sessionLogout">退出登录</button></span>';
+        }
+        notice.style.display = 'block';
+        const logoutBtn = document.getElementById('sessionLogout');
+        if (logoutBtn) logoutBtn.addEventListener('click', function () {
+          window.ChemAuth.logout();
+          notice.style.display = 'none';
+        });
+      })();
+
+      form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const phoneVal = phone.value.trim();
+        const codeVal = code.value.trim();
+        if (!phoneVal || phoneVal.length < 11) {
+          show('请输入正确的手机号', true); markErr(phone); shake(); return;
+        }
+        if (!codeVal || codeVal.length !== 6) {
+          show('请输入 6 位绑定码', true); markErr(code); shake(); return;
+        }
+        submitBtn.disabled = true;
+        submitBtn.textContent = '登录中…';
+        show('', false);
+        try {
+          const data = await window.ChemAPI.parentLogin(phoneVal, codeVal);
+          window.ChemAuth.saveSession(data.access_token, {
+            user_id: data.user_id,
+            role: data.role,
+            name: data.name,
+            school_id: data.school_id,
+            role_id: data.role_id,
+          });
+          const target = window.ChemAuth.redirectAfterLogin();
+          if (target) {
+            show('登录成功，正在进入…', false);
+            location.replace(target);
+          } else {
+            window.ChemAuth.logout();
+            show('无权限：当前账号不是家长角色', true);
+            shake();
+          }
+        } catch (err) {
+          show(window.ChemAPI.parentErrorText(err), true);
+          shake();
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = '登 录';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

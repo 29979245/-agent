@@ -4,6 +4,9 @@
 - 删除 ExamRecord 级联删除 StudentAnswer；
 - 删除 Question 受限（有作答则拒绝）；
 - 删除 QuestionSet 仅级联删 QuestionSetItem 关联、题目实体保留。
+
+练习记录（ADR-0002）：练习/训练/每日练习按学生组织为 per-student ExamRecord，
+student_id 非空、class_id 可空留白，与教师端 exam 六态流程隔离。
 """
 from datetime import date, datetime
 
@@ -24,14 +27,17 @@ from app.db.models.enums import (
 
 
 class ExamRecord(Base):
-    """一次考试/练习/作业记录，归属班级。"""
+    """一次考试/练习/作业记录；教师考试归属班级，学生练习按学生组织（ADR-0002）。"""
 
     __tablename__ = "exam_record"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    class_id: Mapped[int] = mapped_column(
-        ForeignKey("class.id", ondelete="RESTRICT"), nullable=False
+    class_id: Mapped[int | None] = mapped_column(
+        ForeignKey("class.id", ondelete="RESTRICT"), nullable=True
     )
+    student_id: Mapped[int | None] = mapped_column(
+        ForeignKey("student.id", ondelete="RESTRICT"), nullable=True
+    )  # per-student 练习/训练/每日练习记录归属（ADR-0002）
     name: Mapped[str] = mapped_column(String(100), default="")
     status: Mapped[ExamStatus] = mapped_column(
         DbEnum(ExamStatus), default=ExamStatus.draft
@@ -46,7 +52,7 @@ class ExamRecord(Base):
     )  # 错题统计 JSON
     question_stats: Mapped[dict] = mapped_column(
         MutableDict.as_mutable(JSON), nullable=False, default=dict
-    )  # 发布元数据 JSON：published/published_at/question_count/total_students
+    )  # 发布元数据 JSON：published/published_at/question_count/total_students；练习另含 difficulty/deadline
 
     class_: Mapped["Class"] = relationship()  # noqa: F821
     questions: Mapped[list["Question"]] = relationship(back_populates="exam")
@@ -140,6 +146,7 @@ class StudentAnswer(Base):
     )
     answer_text: Mapped[str] = mapped_column(String(2000), default="")
     is_correct: Mapped[bool] = mapped_column(default=False)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     barrier_type: Mapped[BarrierType | None] = mapped_column(
         DbEnum(BarrierType), nullable=True
     )

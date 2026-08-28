@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>我的 · ChemAI 智辅化学</title>
+  <link rel="stylesheet" href="css/student.css" />
+  <link rel="stylesheet" href="vendor/katex.min.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- 1) 顶部标题栏 -->
+    <header class="topbar">
+      <div class="title">我的</div>
+      <button class="icon-btn" id="gearBtn" aria-label="设置">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+    </header>
+
+    <!-- 2) 个人信息卡 -->
+    <section class="profile-card">
+      <div class="avatar-lg" id="avatar"></div>
+      <div class="name-lg" id="name"></div>
+      <div class="class-text" id="className"></div>
+      <div class="bind-row">
+        <span class="bind-label">家长绑定码</span>
+        <span class="bind-code" id="bindCode">点击生成</span>
+        <button class="bind-refresh" id="bindRefresh" title="重新生成" aria-label="重新生成绑定码">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- 3) 学习统计 -->
+    <section class="stat-row">
+      <div class="stat-cell">
+        <div class="stat-num"><span id="statExer">0</span><small>题</small></div>
+        <div class="stat-lbl">完成练习</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-num" id="statAcc">0%</div>
+        <div class="stat-lbl">正确率</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-num"><span id="statStreak">0</span><small>天</small></div>
+        <div class="stat-lbl">连续打卡</div>
+      </div>
+    </section>
+
+    <!-- 4) 功能入口 -->
+    <nav class="menu-list">
+      <button class="menu-row" id="openWeekly">
+        <span>学习报告</span>
+        <span class="badge-new">新</span>
+      </button>
+      <button class="menu-row" id="openPlan">
+        <span>学习计划</span>
+        <span class="chevron">›</span>
+      </button>
+      <a class="menu-row" href="wrong.html">
+        <span>我的错题本</span>
+        <span class="chevron">›</span>
+      </a>
+      <a class="menu-row" href="review.html">
+        <span>复习中心</span>
+        <span class="chevron">›</span>
+      </a>
+      <button class="menu-row" id="openSettings">
+        <span>个人设置</span>
+        <span class="chevron">›</span>
+      </button>
+    </nav>
+
+    <!-- 5a) 学习周报弹窗 -->
+    <div class="sheet-mask" id="maskWeekly"></div>
+    <div class="sheet" id="sheetWeekly" role="dialog" aria-modal="true" aria-label="学习周报">
+      <div class="sheet-head">
+        <h2 class="sheet-title" id="weekLabel">学习周报</h2>
+        <button class="sheet-close" data-close="Weekly" aria-label="关闭">✕</button>
+      </div>
+      <div id="weeklyBody">
+        <div class="sheet-overview">
+          <div class="sheet-o"><div class="sheet-o-n" id="weekExer">0</div><div class="sheet-o-l">本周练习</div></div>
+          <div class="sheet-o"><div class="sheet-o-n" id="weekAcc">0%</div><div class="sheet-o-l">正确率</div></div>
+          <div class="sheet-o"><div class="sheet-o-n" id="weekDur">0h</div><div class="sheet-o-l">学习时长</div></div>
+        </div>
+        <div class="mastery-title">知识点掌握</div>
+        <div id="weekKp"></div>
+        <p class="comment-box" id="weekComment"></p>
+      </div>
+      <button class="sheet-close-btn" data-close="Weekly">关闭</button>
+    </div>
+
+    <!-- 5b) 学习计划弹窗 -->
+    <div class="sheet-mask" id="maskPlan"></div>
+    <div class="sheet" id="sheetPlan" role="dialog" aria-modal="true" aria-label="学习计划">
+      <div class="sheet-head">
+        <h2 class="sheet-title">学习计划</h2>
+        <button class="sheet-close" data-close="Plan" aria-label="关闭">✕</button>
+      </div>
+      <div id="planBody"></div>
+      <button class="sheet-close-btn" data-close="Plan">关闭</button>
+    </div>
+
+    <!-- 5c) 个人设置弹窗（修改密码） -->
+    <div class="sheet-mask" id="maskSettings"></div>
+    <div class="sheet" id="sheetSettings" role="dialog" aria-modal="true" aria-label="个人设置">
+      <div class="sheet-head">
+        <h2 class="sheet-title">修改密码</h2>
+        <button class="sheet-close" data-close="Settings" aria-label="关闭">✕</button>
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="oldPwd">旧密码</label>
+        <input class="form-input" type="password" id="oldPwd" placeholder="请输入旧密码" />
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="newPwd">新密码</label>
+        <input class="form-input" type="password" id="newPwd" placeholder="请输入新密码" />
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="confirmPwd">确认新密码</label>
+        <input class="form-input" type="password" id="confirmPwd" placeholder="再次输入新密码" />
+      </div>
+      <p class="form-error" id="pwdError"></p>
+      <button class="card-btn" id="savePwdBtn">保存</button>
+    </div>
+
+    <!-- 6) 底部 TabBar -->
+    <nav class="tabbar" id="tabbar"></nav>
+  </div>
+
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/katex.min.js"></script>
+  <script src="vendor/mhchem.min.js"></script>
+  <script src="vendor/auto-render.min.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/katex.js"></script>
+  <script src="js/student-common.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      const SA = window.StudentApp;
+      const A = window.ChemAPI;
+      const $ = (id) => document.getElementById(id);
+
+      if (!SA.requireStudent()) return;
+
+      const studentId = SA.studentId();
+      const $name = $('name');
+      const $class = $('className');
+      const $avatar = $('avatar');
+      const $bind = $('bindCode');
+      const $bindRefresh = $('bindRefresh');
+
+      let report = null;   // 缓存聚合报告
+
+      SA.renderTabbar('profile');
+
+      function fmtAccuracy(v) {
+        if (v === null || v === undefined || v === '') return 0;
+        const n = Number(v);
+        if (isNaN(n)) return 0;
+        return n > 1 ? Math.round(n) : Math.round(n * 100);
+      }
+      function copyText(text) {
+        const done = () => SA.toast('已复制');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
+        } else {
+          fallbackCopy(text, done);
+        }
+      }
+      function fallbackCopy(text, done) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) { /* 忽略 */ }
+        document.body.removeChild(ta);
+        done();
+      }
+
+      // ---- 报告加载 ----
+      async function loadReport() {
+        try {
+          report = await A.getStudentReport(studentId);
+        } catch (err) {
+          if (!err) return;
+          if (err.status === 401) return;  // api.js 已处理跳转
+          SA.toast(((err && err.message) || '报告加载失败'));
+          return;
+        }
+        const p = (report.profile || {});
+        $name.textContent = p.name || '同学';
+        $class.textContent = p.class_name || '';
+        $avatar.textContent = (p.name || '同').charAt(0);
+
+        const s = (report.stats || {});
+        $('statExer').textContent = s.completed_exercises || 0;
+        $('statAcc').textContent = fmtAccuracy(s.accuracy) + '%';
+        $('statStreak').textContent = s.streak_days || 0;
+
+        renderBind(p.bind_code);
+      }
+
+      // ---- 绑定码 ----
+      function renderBind(code) {
+        if (code) {
+          $bind.textContent = code;
+          $bind.classList.remove('gen');
+          $bind.title = '点击复制';
+        } else {
+          $bind.textContent = '点击生成';
+          $bind.classList.add('gen');
+          $bind.title = '生成家长绑定码';
+        }
+      }
+      $bind.addEventListener('click', () => {
+        const code = (report && report.profile && report.profile.bind_code) || '';
+        if (code) { copyText(code); return; }
+        generateBind();
+      });
+      $bindRefresh.addEventListener('click', (e) => {
+        e.stopPropagation();
+        generateBind(true);
+      });
+      async function generateBind(regenerate) {
+        const btnText = $bind.textContent;
+        $bind.textContent = '生成中…';
+        try {
+          const data = await A.generateBindCode(studentId);
+          const code = data.bind_code || '';
+          if (!report) report = {};
+          report.profile = report.profile || {};
+          report.profile.bind_code = code;
+          renderBind(code);
+          if (regenerate) SA.toast('已重新生成');
+        } catch (err) {
+          SA.toast(((err && err.message) || '生成失败'));
+        } finally {
+          $bind.textContent = btnText;
+          renderBind((report && report.profile && report.profile.bind_code) || '');
+        }
+      }
+
+      // ---- 弹窗开关 ----
+      function openSheet(key) { $('mask' + key).classList.add('show'); $('sheet' + key).classList.add('open'); }
+      function closeSheet(key) { $('mask' + key).classList.remove('show'); $('sheet' + key).classList.remove('open'); }
+      ['Weekly', 'Plan', 'Settings'].forEach((key) => {
+        $('mask' + key).addEventListener('click', () => closeSheet(key));
+        document.querySelectorAll('[data-close="' + key + '"]').forEach((el) => {
+          el.addEventListener('click', () => closeSheet(key));
+        });
+      });
+
+      // ---- 学习周报 ----
+      function renderWeekly() {
+        const w = (report && report.weekly) || {};
+        $('weekLabel').textContent = '学习周报（' + (w.week_label || '') + '）';
+        $('weekExer').textContent = w.exercises || 0;
+        $('weekAcc').textContent = fmtAccuracy(w.accuracy) + '%';
+        const hours = Number(w.duration_hours || 0);
+        $('weekDur').textContent = (hours.toFixed(1)) + 'h';
+
+        const kps = w.knowledge_points || [];
+        const kpEl = $('weekKp');
+        if (!kps.length) {
+          kpEl.innerHTML = '<div class="empty" style="padding:16px 0">暂无知识点数据，完成练习后可查看</div>';
+        } else {
+          kpEl.innerHTML = kps.map((k) => {
+            const pct = Math.round(Number(k.mastery || 0) * 100);
+            return '<div class="kp"><span class="kp-name">' + SA.escapeHtml(k.name) + '</span>' +
+              '<span class="kp-track"><span class="kp-fill" style="width:' + pct + '%"></span></span>' +
+              '<span class="kp-pct">' + pct + '%</span></div>';
+          }).join('');
+        }
+
+        const comment = w.teacher_comment;
+        $('weekComment').innerHTML = '<span class="comment-label">教师评语：</span>' +
+          (comment ? SA.renderMarkdown(comment) : '暂无');
+      }
+      $('openWeekly').addEventListener('click', () => { renderWeekly(); openSheet('Weekly'); });
+
+      // ---- 学习计划 ----
+      function renderPlan() {
+        const lp = report ? report.learning_plan : null;
+        const body = $('planBody');
+        if (!lp) {
+          body.innerHTML = '<div class="empty">暂无学习计划，完成练习后可生成</div>';
+          return;
+        }
+        let rows = '';
+        if (typeof lp === 'string') {
+          rows = '<div class="comment-box">' + SA.renderMarkdown(lp) + '</div>';
+        } else {
+          let items = [];
+          if (Array.isArray(lp)) {
+            items = lp.map((x) => (typeof x === 'object' ? (x.title || x.content || JSON.stringify(x)) : String(x)));
+          } else if (Array.isArray(lp.items)) {
+            items = lp.items.map((x) => (typeof x === 'object' ? (x.title || x.content || JSON.stringify(x)) : String(x)));
+          } else {
+            items = Object.keys(lp).map((k) => {
+              const v = lp[k];
+              return k + '：' + (typeof v === 'object' ? JSON.stringify(v) : String(v));
+            });
+          }
+          rows = items.map((t) => '<div class="menu-row" style="height:auto;padding:12px 8px;border:none"><span>' +
+            SA.escapeHtml(t) + '</span></div>').join('');
+        }
+        body.innerHTML = rows || '<div class="empty">暂无学习计划内容</div>';
+      }
+      $('openPlan').addEventListener('click', () => { renderPlan(); openSheet('Plan'); });
+
+      // ---- 修改密码 ----
+      $('gearBtn').addEventListener('click', () => {
+        $('pwdError').textContent = '';
+        $('oldPwd').value = ''; $('newPwd').value = ''; $('confirmPwd').value = '';
+        openSheet('Settings');
+      });
+      $('openSettings').addEventListener('click', () => {
+        $('pwdError').textContent = '';
+        $('oldPwd').value = ''; $('newPwd').value = ''; $('confirmPwd').value = '';
+        openSheet('Settings');
+      });
+      $('savePwdBtn').addEventListener('click', async () => {
+        const oldPwd = $('oldPwd').value.trim();
+        const newPwd = $('newPwd').value.trim();
+        const confirm = $('confirmPwd').value.trim();
+        const errEl = $('pwdError');
+        errEl.textContent = '';
+        if (!oldPwd || !newPwd) { errEl.textContent = '请填写旧密码与新密码'; return; }
+        if (newPwd !== confirm) { errEl.textContent = '两次输入的新密码不一致'; return; }
+        const btn = $('savePwdBtn');
+        btn.disabled = true;
+        btn.textContent = '保存中…';
+        try {
+          await A.changePassword({ old_password: oldPwd, new_password: newPwd });
+          window.ChemAuth.logout();
+          location.href = 'student-login.html';
+        } catch (err) {
+          errEl.textContent = ((err && err.message) || '修改失败，请重试');
+          btn.disabled = false;
+          btn.textContent = '保存';
+        }
+      });
+
+      loadReport().catch(() => { /* 已处理 */ });
+    })();
+  </script>
+</body>
+</html>

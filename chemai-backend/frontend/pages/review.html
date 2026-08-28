@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>复习中心 · ChemAI 智辅化学</title>
+  <link rel="stylesheet" href="css/student.css" />
+  <link rel="stylesheet" href="vendor/katex.min.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- VIEW 1 — 列表 -->
+    <section id="view-list">
+      <header class="topbar">
+        <a class="icon-btn" href="profile.html" aria-label="返回我的">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </a>
+        <div class="title">复习中心</div>
+        <div class="topbar-right" id="studentName"></div>
+      </header>
+      <section class="stats">
+        <div class="stat"><div class="label">待复习</div><div class="num orange" id="statDue">0</div></div>
+        <div class="stat"><div class="label">今日已复习</div><div class="num blue" id="statDone">0</div></div>
+        <div class="stat"><div class="label">已掌握</div><div class="num green" id="statMastered">0</div></div>
+      </section>
+      <h2 class="section-title" id="pendingTitle">今日待复习</h2>
+      <section class="q-list" id="reviewList"></section>
+      <div id="doneSection" class="hidden">
+        <h2 class="section-title done">今日已完成</h2>
+        <div id="doneList"></div>
+      </div>
+    </section>
+
+    <!-- VIEW 2 — 判级 -->
+    <section id="view-judge" class="hidden">
+      <header class="topbar">
+        <button class="icon-btn" aria-label="返回" onclick="backToList()">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+        </button>
+        <div class="title">间隔复习</div>
+        <div class="topbar-right"><span id="judgeProgress"></span></div>
+      </header>
+      <div class="question-area" id="judgeArea"></div>
+      <div class="judge-row">
+        <button class="btn oxford" id="btnWrong" onclick="window.__judge(false)">答错</button>
+        <button class="btn green" id="btnCorrect" onclick="window.__judge(true)">答对</button>
+      </div>
+    </section>
+
+    <nav class="tabbar" id="tabbar"></nav>
+  </div>
+
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/katex.min.js"></script>
+  <script src="vendor/mhchem.min.js"></script>
+  <script src="vendor/auto-render.min.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/katex.js"></script>
+  <script src="js/student-common.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      const SA = window.StudentApp;
+      const A = window.ChemAPI;
+
+      let tasks = [];          // 到期待复习任务（API）
+      let stats = { due: 0, done_today: 0, mastered: 0 };
+      let doneList = [];       // 本次会话中已掌握的题目内容
+      let current = null;      // { task, index }
+      let judgment = null;     // 本次判定的选择，提交失败重试时保留高亮
+
+      const $ = (id) => document.getElementById(id);
+      const CHECK_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+
+      function renderChemRoot(root) { SA.renderChem(root); }
+
+      async function load() {
+        if (!SA.requireStudent()) return;
+        const me = window.ChemAuth.getUser ? window.ChemAuth.getUser() : null;
+        $('studentName').textContent = (me && me.name) || '';
+        const data = await A.studentReviewTasks(SA.studentId());
+        tasks = data.tasks || [];
+        stats = data.stats || { due: tasks.length, done_today: 0, mastered: 0 };
+        render();
+      }
+
+      function render() {
+        $('statDue').textContent = stats.due;
+        $('statDone').textContent = stats.done_today;
+        $('statMastered').textContent = stats.mastered;
+        $('pendingTitle').textContent = '今日待复习（' + tasks.length + '题）';
+
+        const el = $('reviewList');
+        if (!tasks.length) {
+          el.innerHTML = '';
+          SA.emptyState(el, '暂无待复习题目');
+        } else {
+          el.innerHTML = tasks.map((t, i) => {
+            const tag = SA.levelTag(t.review_level);
+            const overdue = t.status === 'overdue' ? '<div class="q-summary-overdue">已逾期</div>' : '';
+            const summary = String(t.content || '').replace(/\s+/g, ' ').trim();
+            return '<article class="q-card">' +
+              '<div class="q-top">' +
+              '<div class="q-badge">' + (i + 1) + '</div>' +
+              '<div class="q-summary">' + SA.escapeHtml(summary) + '</div>' +
+              '<span class="q-tag ' + tag.cls + '">' + tag.text + '</span>' +
+              '</div>' + overdue +
+              '<button class="q-btn" onclick="window.__review(' + t.review_task_id + ')">开始复习</button>' +
+              '</article>';
+          }).join('');
+        }
+
+        $('doneSection').classList.toggle('hidden', !doneList.length);
+        $('doneList').innerHTML = doneList.map((d) =>
+          '<article class="done-card"><div class="done-row">' +
+          '<div class="check-badge">' + CHECK_SVG + '</div>' +
+          '<div class="done-text">' + SA.escapeHtml(String(d).replace(/\s+/g, ' ').trim()) + '</div>' +
+          '<div class="done-status">已掌握</div></div></article>'
+        ).join('');
+      }
+
+      async function startJudge(reviewTaskId) {
+        const idx = tasks.findIndex((t) => t.review_task_id === reviewTaskId);
+        if (idx < 0) return;
+        current = { task: tasks[idx], index: idx };
+        $('judgeProgress').textContent = (idx + 1) + '/' + tasks.length;
+        // 上次提交会禁用按钮；进入新判级时复位，否则下一题无法点选
+        $('btnCorrect').disabled = false;
+        $('btnWrong').disabled = false;
+        $('btnCorrect').classList.remove('active');
+        $('btnWrong').classList.remove('active');
+        renderJudge();
+        $('view-list').classList.add('hidden');
+        $('view-judge').classList.remove('hidden');
+      }
+
+      function renderJudge() {
+        const q = current.task;
+        const opts = (q.options || []).map((o, i) =>
+          '<div class="opt-row"><span class="letter">' + String.fromCharCode(65 + i) + '</span>' +
+          '<span>' + SA.renderMarkdown(o) + '</span></div>'
+        ).join('');
+        $('judgeArea').innerHTML =
+          '<p class="stem">' + SA.renderMarkdown(q.content) + '</p>' +
+          (opts ? '<div class="options">' + opts + '</div>' : '');
+        renderChemRoot($('judgeArea'));
+      }
+
+      async function judge(passed) {
+        const t = current;
+        if (!t) return;
+        judgment = passed;
+        const btnOk = $('btnCorrect');
+        const btnNo = $('btnWrong');
+        btnOk.disabled = true;
+        btnNo.disabled = true;
+        btnOk.classList.toggle('active', passed);
+        btnNo.classList.toggle('active', !passed);
+        try {
+          const r = await A.studentReviewSubmit(t.task.review_task_id, passed);
+          tasks.splice(t.index, 1);
+          stats.done_today += 1;
+          stats.due = Math.max(0, stats.due - 1);
+          if (r.status === 'done') {
+            stats.mastered += 1;
+            doneList.push(t.task.content || '');
+          }
+          current = null;
+          judgment = null;
+          render();
+          backToList();
+        } catch (err) {
+          SA.toast('提交失败：' + ((err && err.message) || '请重试'));
+          // 保留已选判定：恢复可点，仅高亮上次点击，重试可直接再点
+          btnOk.disabled = false;
+          btnNo.disabled = false;
+          btnOk.classList.toggle('active', judgment === true);
+          btnNo.classList.toggle('active', judgment === false);
+        }
+      }
+
+      function backToList() {
+        $('view-judge').classList.add('hidden');
+        $('view-list').classList.remove('hidden');
+      }
+
+      window.__review = startJudge;
+      window.__judge = judge;
+      window.backToList = backToList;
+
+      SA.renderTabbar('wrong');
+      load().catch((err) => {
+        if (!err) return;
+        if (err.status === 401) return;  // 已由 api.js 处理跳转
+        if (err.status === 403) {
+          $('reviewList').innerHTML = '';
+          SA.emptyState($('reviewList'), '无权限访问复习中心');
+          return;
+        }
+        $('reviewList').innerHTML = '';
+        SA.emptyState($('reviewList'), ((err && err.message) || '加载失败，请重试'));
+      });
+    })();
+  </script>
+</body>
+</html>
