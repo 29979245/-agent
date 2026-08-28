@@ -514,6 +514,7 @@
         }
 
         let doneReceived = false;
+        let errored = false;  // SSE error 事件已回传，避免循环后重复触发"连接中断"
         try {
           await parseSSE(resp.body, {
             onEvent: (eventName, dataText) => {
@@ -532,14 +533,15 @@
                 doneReceived = true;
                 if (onDone) onDone(dataObj);
               } else if (name === 'error') {
+                errored = true;
                 if (onError) onError({ degradable: false, kind: 'stream_error', message: dataObj.message || '对话出错' });
               } else if (name === 'planning' || name === 'executing' || name === 'reply' || name === 'awaiting_approval') {
                 if (onPhase) onPhase(name);
               }
             },
           });
-          // 流干净结束但未收到 done：视为连接中断（design D3），否则加载态悬挂
-          if (!doneReceived && !controller.signal.aborted && onError) {
+          // 流干净结束但未收到 done 且未报错：视为连接中断（design D3），否则加载态悬挂
+          if (!doneReceived && !errored && !controller.signal.aborted && onError) {
             onError({ degradable: false, kind: 'stream', message: '连接中断' });
           }
         } catch (err) {

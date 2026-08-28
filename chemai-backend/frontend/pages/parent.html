@@ -349,9 +349,11 @@
     </div>
     <div class="convo" id="convo"></div>
     <div class="chips" id="chips">
+      <button class="chip">孩子最近学习了什么化学知识？</button>
+      <button class="chip">哪些知识点比较薄弱？</button>
+      <button class="chip">怎么在家帮孩子学化学？</button>
       <button class="chip">孩子最近学习状态怎么样？</button>
-      <button class="chip">帮我分析薄弱点</button>
-      <button class="chip">如何辅导孩子配平方程式</button>
+      <button class="chip">有什么需要我注意的吗？</button>
     </div>
     <div class="input-row">
       <input type="text" id="chatInput" placeholder="输入你的问题…" />
@@ -404,6 +406,7 @@
         messages: {},           // studentId -> { loaded, offset, total, done }
         aiLoaded: {},           // studentId -> bool
       };
+      var activeStream = null;  // 在途浮动 AI 对话流（sendChat 持有，关闭/切换时 cancel）
 
       var els = {
         childName: document.getElementById('childName'),
@@ -440,26 +443,27 @@
         return Math.round(x * 100) + '%';
       }
 
-      // 知识点通俗化短标签（doc 33 §7 术语表 + 题库常见变体；权威源：weekly_report_service.py TERM_TABLE）
+      // 知识点通俗化标签：文案与权威源 weekly_report_service.py TERM_TABLE 一致（带"/"取第一段），
+      // 题库常见变体另列。匹配规则：精确或正向包含（名含术语），不做反向子串——避免短片段误标整词。
       var PARENT_TERMS = [
-        ['氧化还原反应', '物质与氧气反应'],
-        ['氧化还原', '物质与氧气反应'],
-        ['盐类水解', '盐溶于水改变水的酸碱性'],
+        ['氧化还原反应', '物质与氧气反应'],            // 后端 "物质与氧气反应/电子的转移" 取第一段
+        ['氧化还原', '物质与氧气反应'],                // doc 33 §7 短写法
+        ['盐类水解', '某些盐溶于水后改变水的酸碱性'],
         ['勒夏特列原理', '化学反应平衡的移动规律'],
         ['电解质溶液', '能导电的溶液'],
         ['配平化学方程式', '让方程式两边原子数量相等'],
-        ['化学方程式配平', '让方程式两边原子数量相等'],
+        ['化学方程式配平', '让方程式两边原子数量相等'],  // 题库倒序变体
         ['离子反应', '带电粒子之间的反应'],
-        ['物质的量', '计数微粒数量的单位'],
+        ['物质的量', '化学中计数微粒数量的单位'],
         ['化学键', '原子之间的连接方式'],
         ['摩尔质量', '每摩尔物质的质量'],
-        ['阿伏加德罗常数', '1摩尔含有的微粒数量'],
+        ['阿伏加德罗常数', '1摩尔物质中包含的微粒数量'],
       ];
       function plainTerm(name) {
         if (!name) return name;
         for (var i = 0; i < PARENT_TERMS.length; i++) {
           var term = PARENT_TERMS[i][0], label = PARENT_TERMS[i][1];
-          if (name === term || name.indexOf(term) >= 0 || term.indexOf(name) >= 0) return label;
+          if (name === term || name.indexOf(term) >= 0) return label;
         }
         return name; // 未命中术语原样保留
       }
@@ -765,6 +769,7 @@
       function switchChild(delta) {
         var n = state.children.length;
         if (n <= 1) return;
+        cancelActiveStream();
         state.currentIdx = (state.currentIdx + delta + n) % n;
         loadCurrentChild();
       }
@@ -775,8 +780,12 @@
         document.getElementById('backdrop').classList.add('open');
       }
       function closeSheet() {
+        cancelActiveStream();
         document.getElementById('sheet').classList.remove('open');
         document.getElementById('backdrop').classList.remove('open');
+      }
+      function cancelActiveStream() {
+        if (activeStream) { activeStream.cancel(); activeStream = null; }
       }
       function sendChat(text) {
         var convo = document.getElementById('convo');
@@ -784,44 +793,57 @@
         var sendBtn = document.getElementById('sendBtn');
         var input = document.getElementById('chatInput');
         chips.style.display = 'none';
-        convo.innerHTML += '<div class="ai-msg user">' + escapeHtml(text) + '</div>';
-        convo.innerHTML += '<div class="ai-msg assistant" id="assistantMsg">思考中…</div>';
+        // 每个气泡用闭包持有引用，避免重复 id / getElementById 串话
+        var userBubble = document.createElement('div');
+        userBubble.className = 'ai-msg user';
+        userBubble.textContent = text;
+        var assistantBubble = document.createElement('div');
+        assistantBubble.className = 'ai-msg assistant';
+        assistantBubble.textContent = '思考中…';
+        convo.appendChild(userBubble);
+        convo.appendChild(assistantBubble);
         convo.scrollTop = convo.scrollHeight;
         sendBtn.disabled = true;
         var me = ChemAuth.getUser();
-        var assistant = document.getElementById('assistantMsg');
-        ChemAPI.agentChatStream({
+        var settled = false;
+        function finish() {
+          if (settled) return;
+          settled = true;
+          activeStream = null;
+          sendBtn.disabled = false;
+          input.value = '';
+        }
+        activeStream = ChemAPI.agentChatStream({
           message: text,
           thread_id: null,
           context: { user_id: (me && me.user_id) || null, role: 'parent', persona: 'parent' },
         }, {
           onText: function (chunk) {
-            if (assistant.textContent === '思考中…') assistant.textContent = '';
-            assistant.textContent += chunk;
+            if (assistantBubble.textContent === '思考中…') assistantBubble.textContent = '';
+            assistantBubble.textContent += chunk;
             convo.scrollTop = convo.scrollHeight;
           },
           onDone: function () {
-            if (assistant.textContent === '思考中…') assistant.textContent = '（已收到回复）';
+            if (assistantBubble.textContent === '思考中…') assistantBubble.textContent = '（已收到回复）';
+            finish();
           },
           onError: function (info) {
-            assistant.className = 'ai-msg assistant err';
+            assistantBubble.className = 'ai-msg assistant err';
             if (info && info.degradable) {
-              assistant.textContent = 'AI 辅导暂不可用，请稍后再试。';
+              assistantBubble.textContent = 'AI 辅导暂不可用，请稍后再试。';
             } else if (info && info.message) {
-              assistant.textContent = info.message;
+              assistantBubble.textContent = info.message;
             } else {
-              assistant.textContent = '对话请求失败，请稍后再试。';
+              assistantBubble.textContent = '对话请求失败，请稍后再试。';
             }
+            finish();
           },
         });
-        setTimeout(function () {
-          sendBtn.disabled = false;
-          input.value = '';
-        }, 300);
       }
 
       // ---- 事件绑定 ----
       document.getElementById('logoutBtn').addEventListener('click', function () {
+        cancelActiveStream();
         ChemAuth.logout();
         location.href = 'parent-login.html';
       });
