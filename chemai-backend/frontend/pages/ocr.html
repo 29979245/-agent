@@ -265,8 +265,7 @@
     </div>
     <div class="bottom-actions">
       <button class="btn-bar btn-teal-outline" id="exportBtn" type="button">导出成绩</button>
-      <button class="btn-bar btn-teal-outline" id="sendBtn" type="button">发送给学生</button>
-      <a class="btn-bar btn-oxford" href="diagnosis.html">开始诊断障碍</a>
+      <button class="btn-bar btn-oxford" id="diagnoseBtn" type="button">开始诊断障碍</button>
       <button class="btn-bar btn-teal" id="saveBtn" type="button">保存批改结果</button>
     </div>
   </div>
@@ -709,9 +708,9 @@
         downloadCsv(['姓名,学号,总分,选择题,填空题,状态'].concat(currentResults.map(csvRow)), 'ocr_grading_' + (currentBatchId || 'batch') + '.csv');
       });
 
-      // ---- 发送给学生：占位 ----
-      el('sendBtn').addEventListener('click', function () {
-        toast('发送给学生：功能开发中', true);
+      // ---- 开始诊断障碍：占位（目标页属后续 change，spec L56；不改指向不存在页面的坏链接）----
+      el('diagnoseBtn').addEventListener('click', function () {
+        toast('开始诊断障碍：功能开发中', true);
       });
 
       // ---- 保存结果（落库 + 触发诊断）----
