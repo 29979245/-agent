@@ -518,9 +518,15 @@
         });
       }
       function renderLoading() {
-        ['overview', 'report'].forEach(function (id) {
-          var p = document.getElementById(id);
-          if (p) p.innerHTML = '<div class="loading-hint">加载中…</div>';
+        // 只重置动态子容器；不能用 innerHTML 覆盖父面板，否则会销毁 stat* 等静态节点
+        ['statWeekly', 'statAccuracy', 'statRecent', 'rpPractices', 'rpAnswers', 'rpAccuracy', 'rpStyle']
+          .forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.textContent = '—';
+          });
+        ['statWeak', 'overviewTimeline', 'rpMastery'].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) el.innerHTML = '<div class="loading-hint">加载中…</div>';
         });
       }
       function showOverview() {
