@@ -25,22 +25,30 @@
       const u = this.getUser();
       return !!u && u.role === 'student';
     },
+    isParent() {
+      const u = this.getUser();
+      return !!u && u.role === 'parent';
+    },
     // 学生业务实体 id（= Student.id，登录响应的 role_id），所有学生端点以它作路径参数
     getStudentId() {
       const u = this.getUser();
       return u ? u.role_id : null;
     },
-    // 登录成功后的落点：学生进练习页，教师进工作台，其余角色无学生/教师端页面
+    // 登录成功后的落点：学生进练习页，教师进工作台，家长进主面板
     redirectAfterLogin() {
       if (this.isStudent()) return 'practice.html';
       if (this.isTeacherLike()) return 'exam-v2.html';
+      if (this.isParent()) return 'parent.html';
       return null;
     },
-    // 未认证/过期跳转：logout 后 user 已清无法推断角色，需调用方传 forceStudent；
+    // 未认证/过期跳转：logout 后 user 已清无法推断角色，需调用方传 forceStudent/forceParent；
     // 无参时按当前 user 推断（保留历史行为）
-    redirectToLogin(forceStudent) {
+    redirectToLogin(forceStudent, forceParent) {
       const student = forceStudent !== undefined ? forceStudent : this.isStudent();
-      location.href = student ? 'student-login.html' : 'login.html';
+      if (student) { location.href = 'student-login.html'; return; }
+      const parent = forceParent !== undefined ? forceParent : this.isParent();
+      if (parent) { location.href = 'parent-login.html'; return; }
+      location.href = 'login.html';
     },
     saveSession(token, user) {
       localStorage.setItem(TOKEN_KEY, token);

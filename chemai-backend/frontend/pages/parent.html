@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>家长中心 · ChemAI 智辅化学</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --oxford: #002045;
+      --teal: #13696a;
+      --gray: #888;
+      --gray-light: #aaa;
+      --divider: #f0f0f0;
+      --paper: #faf8f5;
+      --ink: #333;
+      --concept: #7B2D8E;
+      --reading: #3B5BA5;
+      --express: #00897B;
+      --congo: #b43c28;
+    }
+    html { background: #d8dde3; }
+    body {
+      font-family: "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+      background: #d8dde3; color: var(--ink); -webkit-font-smoothing: antialiased;
+    }
+    h1, h2, h3, .serif { font-family: "Cormorant Garamond", "PingFang SC", serif; }
+    .app {
+      max-width: 390px; margin: 0 auto; min-height: 100vh;
+      background: var(--paper); position: relative; overflow-x: hidden;
+    }
+
+    /* 1) Top title bar */
+    .topbar {
+      height: 56px; background: var(--oxford); color: #fff;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 12px; position: sticky; top: 0; z-index: 50;
+    }
+    .topbar .title { font-size: 16px; font-weight: 600; }
+    .topbar .actions { display: flex; gap: 4px; }
+    .icon-btn {
+      width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+      background: none; border: none; color: #fff; cursor: pointer; border-radius: 8px;
+    }
+    .icon-btn:active { background: rgba(255,255,255,.12); }
+
+    /* 2) Child selector */
+    .child-selector { background: #fff; padding: 12px 16px; text-align: center; }
+    .child-row { display: flex; align-items: center; justify-content: center; }
+    .child-row .chev {
+      font-size: 22px; color: var(--gray); background: none; border: none; cursor: pointer;
+      line-height: 1; padding: 4px 8px;
+    }
+    .child-row .chev:disabled { color: #ddd; cursor: default; }
+    .child-row .name { font-size: 16px; font-weight: 700; margin: 0 16px; color: var(--oxford); }
+    .bind-link {
+      color: var(--teal); font-size: 13px; margin-top: 4px; display: block;
+      text-decoration: none; cursor: pointer; background: none; border: none; font-family: inherit;
+    }
+
+    /* 3) Tabs */
+    .tabs {
+      height: 44px; background: #fff; border-bottom: 1px solid #eee;
+      display: flex; position: sticky; top: 56px; z-index: 40;
+    }
+    .tab {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      font-size: 14px; color: var(--gray); background: none; border: none; cursor: pointer;
+      font-family: inherit; position: relative;
+    }
+    .tab.active { color: var(--oxford); font-weight: 600; }
+    .tab.active::after {
+      content: ""; position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+      background: var(--oxford);
+    }
+
+    /* Panels */
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .pad { padding: 16px; }
+    .card { background: #fff; border-radius: 8px; padding: 16px; }
+    .card + .card { margin-top: 12px; }
+    .card-title { font-size: 16px; font-weight: 700; color: var(--oxford); font-family: "PingFang SC", sans-serif; }
+
+    /* 4) Stat grid */
+    .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .stat-label { font-size: 12px; color: var(--gray); }
+    .stat-value { font-size: 22px; font-weight: 700; color: var(--oxford); margin-top: 6px; }
+    .stat-value.sm { font-size: 14px; }
+    .pill {
+      display: inline-block; background: var(--concept); color: #fff; font-size: 12px;
+      border-radius: 999px; padding: 2px 8px; margin-top: 8px;
+    }
+    .pill.empty { background: var(--gray-light); }
+
+    /* Timeline */
+    .timeline { margin-top: 12px; }
+    .tl-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; font-size: 14px; }
+    .tl-row + .tl-row { border-top: 1px solid var(--divider); }
+    .tl-date { color: var(--gray); width: 88px; flex-shrink: 0; font-size: 13px; }
+    .tl-count { flex: 1; color: var(--ink); }
+    .tl-acc { color: var(--oxford); font-weight: 600; width: 56px; text-align: right; }
+    .empty-hint { font-size: 13px; color: var(--gray); text-align: center; padding: 24px 0; }
+
+    /* Tab 2 report */
+    .three-stats { display: flex; }
+    .three-stats > div { flex: 1; text-align: center; }
+    .three-stats .num { font-size: 22px; font-weight: 700; color: var(--oxford); }
+    .three-stats .lbl { font-size: 12px; color: var(--gray); margin-top: 4px; }
+    .mastery-row { margin-top: 14px; }
+    .mastery-row:first-child { margin-top: 0; }
+    .mastery-head { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
+    .mastery-head .pct { color: var(--oxford); font-weight: 600; }
+    .track { height: 6px; background: var(--divider); border-radius: 3px; overflow: hidden; }
+    .fill { height: 100%; background: var(--oxford); border-radius: 3px; }
+    .advice-box {
+      background: #f9f9f9; padding: 12px; border-radius: 4px; margin-top: 12px;
+      font-size: 14px; line-height: 1.6; color: #555;
+    }
+    .ai-btn {
+      width: 100%; height: 40px; background: var(--teal); color: #fff; border: none;
+      border-radius: 8px; font-family: inherit; font-size: 14px; font-weight: 600;
+      margin-top: 12px; cursor: pointer;
+    }
+    .ai-btn:disabled { opacity: .6; cursor: not-allowed; }
+    .ai-detail { max-height: 0; overflow: hidden; transition: max-height .3s ease; }
+    .ai-detail.open { max-height: 420px; }
+    .ai-detail-inner {
+      background: #f9f9f9; border-radius: 4px; padding: 12px; margin-top: 12px;
+      font-size: 14px; line-height: 1.6; color: #555; white-space: pre-wrap;
+    }
+    .ai-detail-inner.err { color: var(--congo); }
+
+    /* Tab 3 messages */
+    .msg-list { padding-bottom: 16px; }
+    .msg {
+      position: relative; padding: 16px; border-bottom: 1px solid var(--divider);
+      cursor: pointer;
+    }
+    .msg .dot {
+      position: absolute; left: 6px; top: 22px; width: 6px; height: 6px;
+      border-radius: 50%; background: var(--reading);
+    }
+    .msg .m-title { font-size: 16px; font-weight: 700; color: var(--oxford); }
+    .msg.read .m-title { font-weight: 400; color: #555; }
+    .msg .m-type { font-size: 11px; color: var(--teal); margin-top: 2px; }
+    .msg .m-preview { font-size: 14px; color: var(--gray); margin-top: 4px; line-height: 1.5; }
+    .msg .m-time { font-size: 12px; color: var(--gray-light); margin-top: 6px; }
+    .msg-detail { max-height: 0; overflow: hidden; transition: max-height .3s ease; }
+    .msg-detail.open { max-height: 300px; }
+    .msg-detail-inner {
+      background: #f9f9f9; border-radius: 4px; padding: 12px; margin-top: 10px;
+      font-size: 14px; line-height: 1.6; color: #555;
+    }
+
+    /* Loading / error */
+    .loading-hint { text-align: center; color: var(--gray); font-size: 13px; padding: 32px 0; }
+    .error-box {
+      text-align: center; color: var(--congo); font-size: 14px; padding: 32px 16px;
+    }
+    .retry-btn {
+      margin-top: 12px; padding: 8px 20px; background: var(--oxford); color: #fff;
+      border: none; border-radius: 8px; font-family: inherit; font-size: 14px; cursor: pointer;
+    }
+
+    /* Empty state (no children) */
+    .empty-view {
+      text-align: center; padding: 80px 32px; display: none;
+    }
+    .empty-view .icon { font-size: 44px; margin-bottom: 12px; }
+    .empty-view .t { font-size: 17px; font-weight: 700; color: var(--oxford); }
+    .empty-view .d { font-size: 13px; color: var(--gray); margin: 8px 0 20px; line-height: 1.6; }
+    .empty-view .bind-btn {
+      padding: 10px 28px; background: var(--teal); color: #fff; border: none;
+      border-radius: 8px; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+
+    /* Bind modal */
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 200;
+      display: none; align-items: center; justify-content: center; padding: 24px;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      width: 100%; max-width: 340px; background: #fff; border-radius: 12px; padding: 20px;
+    }
+    .modal h3 { font-size: 17px; color: var(--oxford); margin-bottom: 16px; }
+    .modal .field { margin-bottom: 12px; }
+    .modal label { display: block; font-size: 12px; color: var(--gray); margin-bottom: 4px; }
+    .modal input, .modal select {
+      width: 100%; height: 42px; border: 1px solid var(--line, rgba(0,32,69,.12));
+      border-radius: 6px; padding: 0 12px; font-size: 14px; font-family: inherit; outline: none;
+      background: #fff;
+    }
+    .modal input:focus, .modal select:focus { border-color: var(--teal); }
+    .modal .err-msg { min-height: 18px; font-size: 12px; color: var(--congo); margin: 4px 0; }
+    .modal .btn-row { display: flex; gap: 10px; margin-top: 12px; }
+    .modal .btn-row button {
+      flex: 1; height: 42px; border: none; border-radius: 8px; font-family: inherit;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    .modal .cancel { background: #f0f0f0; color: #555; }
+    .modal .confirm { background: var(--teal); color: #fff; }
+    .modal .confirm:disabled { opacity: .6; cursor: not-allowed; }
+
+    /* Floating AI */
+    .fab {
+      position: fixed; bottom: 24px; right: 16px; width: 56px; height: 56px;
+      border-radius: 50%; background: var(--oxford); color: #fff; font-size: 16px;
+      font-weight: 700; border: none; cursor: pointer; box-shadow: 0 4px 12px rgba(0,32,69,.3);
+      z-index: 100; display: flex; align-items: center; justify-content: center;
+    }
+    @media (min-width: 390px) {
+      .fab { right: calc(50% - 195px + 16px); }
+    }
+    .backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 98;
+      opacity: 0; pointer-events: none; transition: opacity .3s ease;
+    }
+    .backdrop.open { opacity: 1; pointer-events: auto; }
+    .sheet {
+      position: fixed; bottom: 0; left: 0; right: 0; max-width: 390px; margin: 0 auto;
+      height: 60vh; background: #fff; border-radius: 16px 16px 0 0; z-index: 99;
+      transform: translateY(100%); transition: transform .3s ease;
+      display: flex; flex-direction: column; padding: 12px 16px 16px;
+    }
+    .sheet.open { transform: translateY(0); }
+    .drag-handle { width: 36px; height: 4px; background: #ccc; border-radius: 2px; margin: 0 auto 12px; }
+    .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .sheet-head .st { font-size: 16px; font-weight: 700; color: var(--oxford); }
+    .sheet-close { background: none; border: none; font-size: 20px; color: var(--gray); cursor: pointer; line-height: 1; }
+    .convo { flex: 1; overflow-y: auto; }
+    .ai-msg { max-width: 86%; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.6; margin-bottom: 8px; white-space: pre-wrap; }
+    .ai-msg.user { margin-left: auto; background: var(--oxford); color: #fff; border-bottom-right-radius: 4px; }
+    .ai-msg.assistant { background: #f3f3f3; color: var(--ink); border-bottom-left-radius: 4px; }
+    .ai-msg.assistant.err { color: var(--congo); }
+    .chips { display: flex; flex-direction: column; gap: 8px; }
+    .chip {
+      background: #fff; border: 1px solid #ddd; border-radius: 16px; padding: 8px 12px;
+      font-size: 13px; color: #444; text-align: left; cursor: pointer; font-family: inherit;
+    }
+    .chip:active { background: #f5f5f5; }
+    .input-row { display: flex; gap: 8px; margin-top: 12px; }
+    .input-row input {
+      flex: 1; height: 40px; border: 1px solid #ddd; border-radius: 8px; padding: 0 12px;
+      font-size: 14px; font-family: inherit; outline: none;
+    }
+    .input-row input:focus { border-color: var(--teal); }
+    .send-btn {
+      height: 40px; padding: 0 16px; background: var(--oxford); color: #fff;
+      border: none; border-radius: 8px; font-family: inherit; font-size: 14px; cursor: pointer;
+    }
+    .send-btn:disabled { opacity: .6; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- 1) Top title bar -->
+    <header class="topbar">
+      <span class="title">家长中心</span>
+      <div class="actions">
+        <button class="icon-btn" id="settingsBtn" aria-label="设置" title="设置">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        </button>
+        <button class="icon-btn" id="logoutBtn" aria-label="退出登录" title="退出登录">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- 2) Child selector -->
+    <section class="child-selector" id="childSelector">
+      <div class="child-row">
+        <button class="chev" id="prevChild" aria-label="上一个">‹</button>
+        <span class="name" id="childName">—</span>
+        <button class="chev" id="nextChild" aria-label="下一个">›</button>
+      </div>
+      <button class="bind-link" id="bindOpenBtn">绑定新子女</button>
+    </section>
+
+    <!-- 3) Tabs -->
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="overview">概览</button>
+      <button class="tab" data-tab="report">学习报告</button>
+      <button class="tab" data-tab="message">消息</button>
+    </nav>
+
+    <!-- Empty state (no children) -->
+    <section class="empty-view" id="emptyView">
+      <div class="icon">👨‍👩‍👧</div>
+      <div class="t">请先绑定学生</div>
+      <div class="d">绑定后即可查看孩子的学习情况、周报与系统通知。</div>
+      <button class="bind-btn" id="emptyBindBtn">绑定新子女</button>
+    </section>
+
+    <!-- Tab 1: 概览 -->
+    <section class="panel active pad" id="overview">
+      <div class="stat-grid" id="overviewStats">
+        <div class="card"><div class="stat-label">本周练习</div><div class="stat-value" id="statWeekly">—</div></div>
+        <div class="card"><div class="stat-label">正确率</div><div class="stat-value" id="statAccuracy">—</div></div>
+        <div class="card"><div class="stat-label">薄弱知识点</div><div id="statWeak"><span class="pill empty">暂无数据</span></div></div>
+        <div class="card"><div class="stat-label">最近学习</div><div class="stat-value sm" id="statRecent">—</div></div>
+      </div>
+      <div class="card" style="margin-top:12px;">
+        <div class="card-title">最近学习动态</div>
+        <div class="timeline" id="overviewTimeline"></div>
+      </div>
+    </section>
+
+    <!-- Tab 2: 学习报告 -->
+    <section class="panel pad" id="report">
+      <div class="card">
+        <div class="card-title" style="margin-bottom:14px;">学习概览</div>
+        <div class="three-stats">
+          <div><div class="num" id="rpPractices">—</div><div class="lbl">累计练习</div></div>
+          <div><div class="num" id="rpAnswers">—</div><div class="lbl">累计答题</div></div>
+          <div><div class="num" id="rpAccuracy">—</div><div class="lbl">整体正确率</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:14px;">知识点掌握</div>
+        <div id="rpMastery"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">学习特点 · 家庭建议</div>
+        <div class="advice-box" id="rpStyle"></div>
+        <button class="ai-btn" id="aiReadBtn">AI 解读</button>
+        <div class="ai-detail" id="aiDetail">
+          <div class="ai-detail-inner" id="aiDetailText"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 3: 消息 -->
+    <section class="panel" id="message">
+      <div class="msg-list" id="msgList"></div>
+    </section>
+
+    <!-- Floating AI -->
+    <button class="fab" id="fab">AI</button>
+  </div>
+
+  <div class="backdrop" id="backdrop"></div>
+  <div class="sheet" id="sheet">
+    <div class="drag-handle"></div>
+    <div class="sheet-head">
+      <span class="st">AI 学习顾问</span>
+      <button class="sheet-close" id="sheetClose" aria-label="关闭">×</button>
+    </div>
+    <div class="convo" id="convo"></div>
+    <div class="chips" id="chips">
+      <button class="chip">孩子最近学习状态怎么样？</button>
+      <button class="chip">帮我分析薄弱点</button>
+      <button class="chip">如何辅导孩子配平方程式</button>
+    </div>
+    <div class="input-row">
+      <input type="text" id="chatInput" placeholder="输入你的问题…" />
+      <button class="send-btn" id="sendBtn">发送</button>
+    </div>
+  </div>
+
+  <!-- Bind modal -->
+  <div class="modal-backdrop" id="bindModal">
+    <div class="modal">
+      <h3>绑定新子女</h3>
+      <div class="field">
+        <label for="bindSid">子女学号</label>
+        <input id="bindSid" type="tel" inputmode="numeric" placeholder="请输入学号" />
+      </div>
+      <div class="field">
+        <label for="bindCode">绑定码（6 位字母数字）</label>
+        <input id="bindCode" type="text" inputmode="text" maxlength="6" placeholder="请输入 6 位绑定码" />
+      </div>
+      <div class="field">
+        <label for="bindRelation">关系</label>
+        <select id="bindRelation">
+          <option value="guardian">监护人</option>
+          <option value="other">其他</option>
+        </select>
+      </div>
+      <div class="err-msg" id="bindErr"></div>
+      <div class="btn-row">
+        <button class="cancel" id="bindCancel">取消</button>
+        <button class="confirm" id="bindConfirm">确认绑定</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      var ChemAPI = window.ChemAPI;
+      var ChemAuth = window.ChemAuth;
+      var PAGE_SIZE = 20;
+
+      var state = {
+        children: [],
+        currentIdx: 0,
+        activeTab: 'overview',
+        reportCache: {},        // studentId -> report
+        reportLoading: {},      // studentId -> Promise
+        messages: {},           // studentId -> { loaded, offset, total, done }
+        aiLoaded: {},           // studentId -> bool
+      };
+
+      var els = {
+        childName: document.getElementById('childName'),
+        prevChild: document.getElementById('prevChild'),
+        nextChild: document.getElementById('nextChild'),
+        childSelector: document.getElementById('childSelector'),
+        tabs: document.getElementById('tabs'),
+        emptyView: document.getElementById('emptyView'),
+        msgList: document.getElementById('msgList'),
+      };
+
+      function guard() {
+        if (!ChemAuth.getToken()) { ChemAuth.redirectToLogin(false, true); return false; }
+        if (!ChemAuth.isParent()) { ChemAuth.redirectToLogin(); return false; }
+        return true;
+      }
+      if (!guard()) return;
+
+      function currentChild() { return state.children[state.currentIdx]; }
+
+      function fmtDate(iso) {
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return iso || '';
+        return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' +
+          ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+      }
+      function fmtDay(isoDate) {
+        var parts = String(isoDate).split('-');
+        if (parts.length === 3) return (+parts[1]) + '月' + (+parts[2]) + '日';
+        return isoDate || '';
+      }
+      function pct(x) {
+        if (x === null || x === undefined) return '—';
+        return Math.round(x * 100) + '%';
+      }
+
+      // 知识点通俗化短标签（doc 33 §7 术语表 + 题库常见变体；权威源：weekly_report_service.py TERM_TABLE）
+      var PARENT_TERMS = [
+        ['氧化还原反应', '物质与氧气反应'],
+        ['氧化还原', '物质与氧气反应'],
+        ['盐类水解', '盐溶于水改变水的酸碱性'],
+        ['勒夏特列原理', '化学反应平衡的移动规律'],
+        ['电解质溶液', '能导电的溶液'],
+        ['配平化学方程式', '让方程式两边原子数量相等'],
+        ['化学方程式配平', '让方程式两边原子数量相等'],
+        ['离子反应', '带电粒子之间的反应'],
+        ['物质的量', '计数微粒数量的单位'],
+        ['化学键', '原子之间的连接方式'],
+        ['摩尔质量', '每摩尔物质的质量'],
+        ['阿伏加德罗常数', '1摩尔含有的微粒数量'],
+      ];
+      function plainTerm(name) {
+        if (!name) return name;
+        for (var i = 0; i < PARENT_TERMS.length; i++) {
+          var term = PARENT_TERMS[i][0], label = PARENT_TERMS[i][1];
+          if (name === term || name.indexOf(term) >= 0 || term.indexOf(name) >= 0) return label;
+        }
+        return name; // 未命中术语原样保留
+      }
+
+      // ---- 子女选择 ----
+      function renderChildSelector() {
+        var n = state.children.length;
+        els.childName.textContent = n ? currentChild().name : '—';
+        els.prevChild.disabled = n <= 1;
+        els.nextChild.disabled = n <= 1;
+      }
+      function showEmpty() {
+        els.childSelector.style.display = 'none';
+        els.tabs.style.display = 'none';
+        document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
+        els.emptyView.style.display = 'block';
+      }
+      function hideEmpty() {
+        els.childSelector.style.display = 'block';
+        els.tabs.style.display = 'flex';
+        els.emptyView.style.display = 'none';
+      }
+      function setTab(tab) {
+        state.activeTab = tab;
+        document.querySelectorAll('.tab').forEach(function (t) {
+          t.classList.toggle('active', t.dataset.tab === tab);
+        });
+        document.querySelectorAll('.panel').forEach(function (p) {
+          p.classList.toggle('active', p.id === tab);
+        });
+        if (tab === 'message') loadMessages(currentChild().student_id);
+      }
+
+      // ---- 报告加载（概览 + 学习报告共用同一份）----
+      function getReport(studentId) {
+        if (state.reportCache[studentId]) return Promise.resolve(state.reportCache[studentId]);
+        if (state.reportLoading[studentId]) return state.reportLoading[studentId];
+        var p = ChemAPI.childReport(studentId)
+          .then(function (r) { state.reportCache[studentId] = r; return r; })
+          .finally(function () { delete state.reportLoading[studentId]; });
+        state.reportLoading[studentId] = p;
+        return p;
+      }
+
+      function loadCurrentChild() {
+        var sid = currentChild().student_id;
+        renderChildSelector();
+        setTab('overview');
+        renderLoading();
+        getReport(sid).then(function (report) {
+          renderOverview(report);
+          renderReport(report);
+          showOverview();
+        }).catch(function (err) {
+          showError(ChemAPI.parentErrorText(err));
+        });
+      }
+      function renderLoading() {
+        ['overview', 'report'].forEach(function (id) {
+          var p = document.getElementById(id);
+          if (p) p.innerHTML = '<div class="loading-hint">加载中…</div>';
+        });
+      }
+      function showOverview() {
+        setTab('overview');
+      }
+      function showError(text) {
+        document.querySelectorAll('.panel').forEach(function (p) {
+          p.innerHTML = '<div class="error-box">' + (text || '加载失败') +
+            '<br><button class="retry-btn" onclick="window.location.reload()">重新加载</button></div>';
+        });
+      }
+
+      // ---- 概览渲染 ----
+      function renderOverview(r) {
+        var s = r.stats || {};
+        document.getElementById('statWeekly').textContent = s.weekly_exercises + ' 题';
+        document.getElementById('statAccuracy').textContent = pct(s.weekly_accuracy);
+        var kps = (r.knowledge_points || []).slice().sort(function (a, b) { return a.mastery - b.mastery; });
+        var weak = kps[0];
+        var weakEl = document.getElementById('statWeak');
+        if (weak) {
+          weakEl.innerHTML = '<span class="pill">' + escapeHtml(plainTerm(weak.name)) + '</span>';
+        } else {
+          weakEl.innerHTML = '<span class="pill empty">暂无数据</span>';
+        }
+        var tl = r.timeline || [];
+        document.getElementById('statRecent').textContent = tl.length ? fmtDay(tl[tl.length - 1].date) : '—';
+        var tlBox = document.getElementById('overviewTimeline');
+        if (!tl.length) {
+          tlBox.innerHTML = '<div class="empty-hint">本周暂无学习记录</div>';
+          return;
+        }
+        tlBox.innerHTML = tl.slice(-7).map(function (d) {
+          return '<div class="tl-row">' +
+            '<span class="tl-date">' + fmtDay(d.date) + '</span>' +
+            '<span class="tl-count">答对 ' + d.correct + ' / ' + d.total + ' 题</span>' +
+            '<span class="tl-acc">' + pct(d.accuracy) + '</span>' +
+          '</div>';
+        }).join('');
+      }
+
+      // ---- 学习报告渲染 ----
+      function renderReport(r) {
+        var s = r.stats || {};
+        document.getElementById('rpPractices').textContent = s.total_practices || 0;
+        document.getElementById('rpAnswers').textContent = s.total_answers || 0;
+        document.getElementById('rpAccuracy').textContent = pct(s.overall_accuracy);
+        var kps = r.knowledge_points || [];
+        var masteryBox = document.getElementById('rpMastery');
+        if (!kps.length) {
+          masteryBox.innerHTML = '<div class="empty-hint">暂无知识点数据</div>';
+        } else {
+          masteryBox.innerHTML = kps.map(function (k) {
+            var p = Math.round((k.mastery || 0) * 100);
+            return '<div class="mastery-row">' +
+              '<div class="mastery-head"><span>' + escapeHtml(plainTerm(k.name)) + '</span><span class="pct">' + p + '%</span></div>' +
+              '<div class="track"><div class="fill" style="width:' + Math.min(p, 100) + '%"></div></div>' +
+            '</div>';
+          }).join('');
+        }
+        document.getElementById('rpStyle').textContent = r.learning_style || '暂无学习特点分析';
+      }
+
+      function escapeHtml(str) {
+        return String(str || '').replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+
+      // ---- AI 解读 ----
+      function toggleAiDetail() {
+        var detail = document.getElementById('aiDetail');
+        var opened = detail.classList.contains('open');
+        detail.classList.toggle('open', !opened);
+        if (!opened) ensureAiSummary();
+      }
+      function ensureAiSummary() {
+        var sid = currentChild().student_id;
+        if (state.aiLoaded[sid]) return;
+        var btn = document.getElementById('aiReadBtn');
+        var text = document.getElementById('aiDetailText');
+        state.aiLoaded[sid] = true;
+        btn.disabled = true;
+        btn.textContent = '解读中…';
+        text.textContent = '正在生成通俗解读…';
+        text.className = 'ai-detail-inner';
+        ChemAPI.aiSummary(sid).then(function (data) {
+          text.textContent = (data && data.summary) || '暂无解读';
+        }).catch(function (err) {
+          text.textContent = ChemAPI.parentErrorText(err) + '（点击重试）';
+          text.className = 'ai-detail-inner err';
+          state.aiLoaded[sid] = false;
+          btn.disabled = false;
+          btn.textContent = 'AI 解读';
+          btn.addEventListener('click', function onRetry() {
+            btn.removeEventListener('click', onRetry);
+            ensureAiSummary();
+          });
+        });
+      }
+
+      // ---- 消息（滚动分页）----
+      function loadMessages(sid) {
+        var m = state.messages[sid] || (state.messages[sid] = { items: [], offset: 0, total: 0, done: false, loading: false, loaded: false });
+        if (m.loaded) return;
+        m.loaded = true;
+        fetchMsgPage(sid);
+      }
+      function fetchMsgPage(sid) {
+        var m = state.messages[sid];
+        if (m.loading || m.done) return;
+        m.loading = true;
+        var list = document.getElementById('msgList');
+        list.innerHTML = '<div class="loading-hint">加载中…</div>';
+        ChemAPI.notifications(PAGE_SIZE, m.offset).then(function (data) {
+          m.loading = false;
+          var items = data.notifications || [];
+          m.items = m.items.concat(items);
+          m.offset = m.items.length;
+          m.total = data.total || 0;
+          m.done = m.offset >= m.total;
+          if (!m.items.length) {
+            list.innerHTML = '<div class="empty-hint">暂无消息</div>';
+            return;
+          }
+          list.innerHTML = m.items.map(function (n) { return renderMsg(n); }).join('') +
+            (m.done ? '' : '<div class="loading-hint" id="msgMore">加载更多…</div>');
+          bindMsgEvents(list, sid);
+        }).catch(function (err) {
+          m.loading = false;
+          list.innerHTML = '<div class="error-box">' + ChemAPI.parentErrorText(err) +
+            '<br><button class="retry-btn" id="msgRetry">重新加载</button></div>';
+          document.getElementById('msgRetry').addEventListener('click', function () {
+            m.items = []; m.offset = 0; m.done = false;
+            fetchMsgPage(sid);
+          });
+        });
+      }
+      // 滚动近底部自动加载下一页
+      window.addEventListener('scroll', function () {
+        if (state.activeTab !== 'message') return;
+        var child = currentChild();
+        if (!child) return;
+        var m = state.messages[child.student_id];
+        if (!m || m.loading || m.done) return;
+        if (window.innerHeight + window.scrollY >= document.body.scrollHeight - 80) {
+          fetchMsgPage(child.student_id);
+        }
+      });
+      function renderMsg(n) {
+        var typeText = {
+          weekly_report: '周报', score_alert: '成绩预警', learning_plan: '学习计划',
+          reminder: '学习提醒', daily_report: '每日练习报告',
+        }[n.notification_type] || n.notification_type || '';
+        return '<div class="msg' + (n.is_read ? ' read' : '') + '" data-id="' + n.id + '">' +
+          (n.is_read ? '' : '<span class="dot"></span>') +
+          '<div class="m-title">' + escapeHtml(n.title) + '</div>' +
+          (typeText ? '<div class="m-type">' + typeText + '</div>' : '') +
+          '<div class="m-preview">' + escapeHtml(n.content) + '</div>' +
+          '<div class="m-time">' + fmtDate(n.created_at) + '</div>' +
+          '<div class="msg-detail"><div class="msg-detail-inner">' + escapeHtml(n.content) + '</div></div>' +
+        '</div>';
+      }
+      function bindMsgEvents(list, sid) {
+        list.querySelectorAll('.msg').forEach(function (el) {
+          el.addEventListener('click', function () {
+            el.querySelector('.msg-detail').classList.toggle('open');
+            var id = +el.getAttribute('data-id');
+            if (!el.classList.contains('read')) {
+              el.classList.add('read');
+              var dot = el.querySelector('.dot');
+              if (dot) dot.remove();
+              ChemAPI.markNotificationRead(id).catch(function () { /* 失败保持本地已读，不打断 */ });
+            }
+          });
+        });
+      }
+
+      // ---- 绑定新子女 ----
+      function openBindModal() {
+        document.getElementById('bindModal').classList.add('open');
+        document.getElementById('bindSid').focus();
+        document.getElementById('bindErr').textContent = '';
+      }
+      function closeBindModal() {
+        document.getElementById('bindModal').classList.remove('open');
+      }
+      function bindFilters() {
+        var sid = document.getElementById('bindSid');
+        var code = document.getElementById('bindCode');
+        sid.addEventListener('input', function () { this.value = this.value.replace(/\D/g, '').slice(0, 10); });
+        code.addEventListener('input', function () { this.value = this.value.replace(/[^A-Za-z0-9]/g, '').slice(0, 6); });
+      }
+      function submitBind() {
+        var sid = document.getElementById('bindSid').value.trim();
+        var code = document.getElementById('bindCode').value.trim();
+        var relation = document.getElementById('bindRelation').value;
+        var errEl = document.getElementById('bindErr');
+        var confirmBtn = document.getElementById('bindConfirm');
+        if (!sid) { errEl.textContent = '请输入子女学号'; return; }
+        if (!code || code.length !== 6) { errEl.textContent = '请输入 6 位绑定码'; return; }
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = '绑定中…';
+        errEl.textContent = '';
+        ChemAPI.bindChild({ student_id: +sid, bind_code: code, relation: relation })
+          .then(function () {
+            closeBindModal();
+            return refreshChildren(+sid);
+          })
+          .catch(function (err) {
+            errEl.textContent = ChemAPI.parentErrorText(err);
+          })
+          .finally(function () {
+            confirmBtn.disabled = false;
+            confirmBtn.textContent = '确认绑定';
+          });
+      }
+
+      // ---- 子女切换 / 刷新 ----
+      function refreshChildren(selectSid) {
+        return ChemAPI.children().then(function (data) {
+          state.children = data.children || [];
+          if (selectSid) {
+            var idx = state.children.findIndex(function (c) { return c.student_id === selectSid; });
+            if (idx >= 0) state.currentIdx = idx;
+          }
+          state.currentIdx = Math.min(state.currentIdx, Math.max(0, state.children.length - 1));
+          renderChildSelector();
+          if (!state.children.length) { showEmpty(); return; }
+          hideEmpty();
+          loadCurrentChild();
+        }).catch(function (err) {
+          showError(ChemAPI.parentErrorText(err));
+        });
+      }
+      function switchChild(delta) {
+        var n = state.children.length;
+        if (n <= 1) return;
+        state.currentIdx = (state.currentIdx + delta + n) % n;
+        loadCurrentChild();
+      }
+
+      // ---- 浮动 AI ----
+      function openSheet() {
+        document.getElementById('sheet').classList.add('open');
+        document.getElementById('backdrop').classList.add('open');
+      }
+      function closeSheet() {
+        document.getElementById('sheet').classList.remove('open');
+        document.getElementById('backdrop').classList.remove('open');
+      }
+      function sendChat(text) {
+        var convo = document.getElementById('convo');
+        var chips = document.getElementById('chips');
+        var sendBtn = document.getElementById('sendBtn');
+        var input = document.getElementById('chatInput');
+        chips.style.display = 'none';
+        convo.innerHTML += '<div class="ai-msg user">' + escapeHtml(text) + '</div>';
+        convo.innerHTML += '<div class="ai-msg assistant" id="assistantMsg">思考中…</div>';
+        convo.scrollTop = convo.scrollHeight;
+        sendBtn.disabled = true;
+        var me = ChemAuth.getUser();
+        var assistant = document.getElementById('assistantMsg');
+        ChemAPI.agentChatStream({
+          message: text,
+          thread_id: null,
+          context: { user_id: (me && me.user_id) || null, role: 'parent', persona: 'parent' },
+        }, {
+          onText: function (chunk) {
+            if (assistant.textContent === '思考中…') assistant.textContent = '';
+            assistant.textContent += chunk;
+            convo.scrollTop = convo.scrollHeight;
+          },
+          onDone: function () {
+            if (assistant.textContent === '思考中…') assistant.textContent = '（已收到回复）';
+          },
+          onError: function (info) {
+            assistant.className = 'ai-msg assistant err';
+            if (info && info.degradable) {
+              assistant.textContent = 'AI 辅导暂不可用，请稍后再试。';
+            } else if (info && info.message) {
+              assistant.textContent = info.message;
+            } else {
+              assistant.textContent = '对话请求失败，请稍后再试。';
+            }
+          },
+        });
+        setTimeout(function () {
+          sendBtn.disabled = false;
+          input.value = '';
+        }, 300);
+      }
+
+      // ---- 事件绑定 ----
+      document.getElementById('logoutBtn').addEventListener('click', function () {
+        ChemAuth.logout();
+        location.href = 'parent-login.html';
+      });
+      document.getElementById('settingsBtn').addEventListener('click', function () { /* 设置占位 */ });
+      els.prevChild.addEventListener('click', function () { switchChild(-1); });
+      els.nextChild.addEventListener('click', function () { switchChild(1); });
+      document.querySelectorAll('.tab').forEach(function (t) {
+        t.addEventListener('click', function () { setTab(t.dataset.tab); });
+      });
+      document.getElementById('bindOpenBtn').addEventListener('click', openBindModal);
+      document.getElementById('emptyBindBtn').addEventListener('click', openBindModal);
+      document.getElementById('bindCancel').addEventListener('click', closeBindModal);
+      document.getElementById('bindConfirm').addEventListener('click', submitBind);
+      document.getElementById('bindModal').addEventListener('click', function (e) {
+        if (e.target === this) closeBindModal();
+      });
+      bindFilters();
+      document.getElementById('aiReadBtn').addEventListener('click', toggleAiDetail);
+
+      var fab = document.getElementById('fab');
+      var backdrop = document.getElementById('backdrop');
+      var sheet = document.getElementById('sheet');
+      fab.addEventListener('click', openSheet);
+      document.getElementById('sheetClose').addEventListener('click', closeSheet);
+      backdrop.addEventListener('click', closeSheet);
+      document.querySelectorAll('#chips .chip').forEach(function (c) {
+        c.addEventListener('click', function () { sendChat(c.textContent.trim()); });
+      });
+      document.getElementById('sendBtn').addEventListener('click', function () {
+        var input = document.getElementById('chatInput');
+        var text = input.value.trim();
+        if (text) sendChat(text);
+      });
+      document.getElementById('chatInput').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          var text = this.value.trim();
+          if (text) sendChat(text);
+        }
+      });
+
+      // ---- 启动 ----
+      refreshChildren();
+    })();
+  </script>
+</body>
+</html>

@@ -31,9 +31,11 @@
   function handleAuth(resp) {
     if (resp.status === 401) {
       if (window.ChemAuth) {
-        const isStudent = window.ChemAuth.isStudent();  // logout 前先读角色，避免清空后无法推断
+        // logout 前先读角色，避免清空后无法推断跳转端
+        const isStudent = window.ChemAuth.isStudent();
+        const isParent = window.ChemAuth.isParent();
         window.ChemAuth.logout();
-        window.ChemAuth.redirectToLogin(isStudent);
+        window.ChemAuth.redirectToLogin(isStudent, isParent);
       } else {
         location.href = 'login.html';
       }
@@ -163,6 +165,24 @@
     }
     const rest = buffer.trim();
     if (rest) emitBlock(rest);  // EOF 尾部未以空行结尾的事件（如 done）也需消费
+  }
+
+  // 家长端业务错误码 → 可读中文（后端 detail 已中文，此处统一口径并兜底）
+  const PARENT_ERROR_TEXT = {
+    BIND_CODE_MISMATCH: '绑定码不匹配，请向孩子确认当前有效的绑定码',
+    BINDING_EXISTS: '已存在有效的亲子绑定，无需重复绑定',
+    STUDENT_NOT_FOUND: '学生不存在，请核对学号',
+    BINDING_NOT_FOUND: '绑定不存在',
+    NOTIFICATION_NOT_FOUND: '通知不存在',
+    WEEKLY_REPORT_FAILED: '学习报告生成失败，请稍后重试',
+    AI_SUMMARY_FAILED: 'AI 解读生成失败，请稍后重试',
+  };
+
+  function parentErrorText(err) {
+    if (err && err.data && err.data.error_code && PARENT_ERROR_TEXT[err.data.error_code]) {
+      return PARENT_ERROR_TEXT[err.data.error_code];
+    }
+    return (err && err.message) || '请求失败，请稍后重试';
   }
 
   // 知识点静态列表：后端无 /api/knowledge 端点，前端内置（Tab 1 知识云）
@@ -403,6 +423,39 @@
     generateBindCode(studentId) {
       return request('/api/student/' + studentId + '/bind-code', { method: 'POST' });
     },
+
+    // ---- 家长端（/api/parent）----
+    parentLogin(phone, bind_code) {
+      return request('/api/parent/login', { method: 'POST', body: { phone, bind_code } });
+    },
+    children() {
+      return request('/api/parent/children');
+    },
+    childReport(studentId) {
+      return request('/api/parent/child/' + studentId + '/report');
+    },
+    childWeekly(studentId) {
+      return request('/api/parent/child/' + studentId + '/weekly');
+    },
+    weeklyGenerate(studentId) {
+      return request('/api/parent/child/' + studentId + '/weekly/generate', { method: 'POST' });
+    },
+    aiSummary(studentId) {
+      return request('/api/parent/child/' + studentId + '/report/ai-summary', { method: 'POST' });
+    },
+    bindChild(payload) {
+      return request('/api/parent/bind', { method: 'POST', body: payload });
+    },
+    unbindChild(bindingId) {
+      return request('/api/parent/bind/' + bindingId, { method: 'DELETE' });
+    },
+    notifications(limit, offset) {
+      return request('/api/parent/notifications', { query: { limit, offset } });
+    },
+    markNotificationRead(id) {
+      return request('/api/parent/notifications/' + id + '/read', { method: 'PUT' });
+    },
+    parentErrorText,
 
     // ---- 修改密码（/api/auth）----
     changePassword(payload) {
