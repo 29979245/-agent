@@ -19,8 +19,8 @@ def _ctx(**kw):
 
 
 def test_registry_all_tools_registered():
-    assert len(TOOL_IMPLS) == 14
-    assert len(TOOL_SCHEMAS) == 14
+    assert len(TOOL_IMPLS) == 30
+    assert len(TOOL_SCHEMAS) == 30
     from app.agents.tools.tool_meta import TOOL_META
     assert set(TOOL_IMPLS) == set(TOOL_META)
 
@@ -127,11 +127,13 @@ def test_build_langgraph_tools_persona():
     assert "delete_bank" in names  # approval 工具也在工具集
 
 
-def test_build_langgraph_tools_student_only_web_search():
+def test_build_langgraph_tools_student_has_tutoring():
     ctx = _ctx()
     tools = build_langgraph_tools(ctx, "student")
     names = {t.name for t in tools}
-    assert names == {"web_search"}
+    assert "web_search" in names
+    assert {"ionic_equation_tutor", "stoichiometry_tutor", "redox_tutor", "equilibrium_tutor",
+            "chemistry_tutor", "simulate_experiment"} <= names
 
 
 def test_build_langgraph_tool_invokes_guard():

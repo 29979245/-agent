@@ -68,7 +68,50 @@ def test_non_approval_tool_passes_layer4():
 
 
 def test_approval_tools_set():
-    assert APPROVAL_TOOLS == frozenset({"delete_bank"})
+    assert APPROVAL_TOOLS == frozenset({
+        "delete_bank",
+        "grade_answer_sheets",
+        "save_grading_results",
+        "send_report_to_parent",
+    })
+
+
+def test_send_report_to_parent_approval_blocked():
+    """send_report_to_parent 属审批门控工具，未确认返回 blocked。"""
+    g = GuardState()
+    r = g.check_approval("send_report_to_parent", {"student_id": 1})
+    assert r.ok is False
+    assert r.error_code == "requires_approval_blocked"
+    g.mark_approved("send_report_to_parent", {"student_id": 1})
+    assert g.check_approval("send_report_to_parent", {"student_id": 1}).ok is True
+
+
+def test_parent_report_student_id_prerequisite():
+    """报告两工具 student_id 前置：缺失返回 missing_prerequisites，补全通过。"""
+    g = GuardState()
+    for name in ("generate_parent_report", "send_report_to_parent"):
+        assert g.check_prerequisites(name, {}).error_code == "missing_prerequisites"
+        assert g.check_prerequisites(name, {"student_id": 1}).ok is True
+
+
+def test_ocr_write_tools_approval_blocked():
+    """grade_answer_sheets / save_grading_results 属审批门控工具，未确认返回 blocked。"""
+    g = GuardState()
+    for name in ("grade_answer_sheets", "save_grading_results"):
+        r = g.check_approval(name, {"batch_id": 1, "exam_id": 2})
+        assert r.ok is False
+        assert r.error_code == "requires_approval_blocked"
+        assert r.payload["requires_approval"] is True
+        g.mark_approved(name, {"batch_id": 1, "exam_id": 2})
+        assert g.check_approval(name, {"batch_id": 1, "exam_id": 2}).ok is True
+
+
+def test_ocr_batch_prerequisite():
+    """OCR 三工具 batch_id 前置：缺失返回 missing_prerequisites，补全通过。"""
+    g = GuardState()
+    for name in ("query_ocr_progress", "grade_answer_sheets", "save_grading_results"):
+        assert g.check_prerequisites(name, {}).error_code == "missing_prerequisites"
+        assert g.check_prerequisites(name, {"batch_id": 1}).ok is True
 
 
 def test_assign_adaptive_practice_no_longer_approval():

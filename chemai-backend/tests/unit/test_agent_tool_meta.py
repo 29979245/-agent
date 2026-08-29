@@ -13,8 +13,8 @@ def test_registered_tools_covered_by_meta():
     assert problems == []
 
 
-def test_slice1_has_14_tools():
-    assert len(TOOL_META) == 14
+def test_tools_total():
+    assert len(TOOL_META) == 30
 
 
 def test_required_tools_present():
@@ -24,6 +24,12 @@ def test_required_tools_present():
         "save_to_bank", "list_banks", "delete_bank",
         "diagnose_barrier", "show_diagnosis", "show_students", "weekly_report",
         "assign_adaptive_practice", "generate_learning_plan", "send_learning_plan",
+        "ionic_equation_tutor", "stoichiometry_tutor", "redox_tutor", "equilibrium_tutor",
+        "periodic_law_tutor", "organic_tutor", "chemistry_tutor",
+        "simulate_experiment", "balance_equation",
+        "query_ocr_progress", "grade_answer_sheets", "save_grading_results",
+        "memory_student_get", "memory_teacher_get",
+        "generate_parent_report", "send_report_to_parent",
     } <= names
 
 
@@ -46,11 +52,18 @@ def test_persona_filter():
     teacher_tools = set(tools_for_persona("teacher"))
     assert "diagnose_barrier" in teacher_tools
     assert "web_search" in teacher_tools
+    assert "query_ocr_progress" in teacher_tools
+    assert "grade_answer_sheets" in teacher_tools
+    assert "save_grading_results" in teacher_tools
+    assert {"memory_student_get", "memory_teacher_get"} <= teacher_tools
     parent_tools = set(tools_for_persona("parent"))
-    assert parent_tools <= {"weekly_report", "diagnose_barrier", "web_search"}
-    # 学生 slice-1 仅 web_search 开放（其余 tutoring 工具未在 slice-1 注册）
+    assert parent_tools <= {"weekly_report", "diagnose_barrier", "web_search", "chemistry_tutor",
+                            "memory_student_get"}
+    # 学生开放 4 专题 + 通用辅导 + 实验模拟 + 联网搜索 + 记忆（periodic_law/organic 注册但按 §4.2 不进学生白名单）
     student_tools = set(tools_for_persona("student"))
-    assert student_tools == {"web_search"}
+    assert {"web_search", "ionic_equation_tutor", "stoichiometry_tutor", "redox_tutor",
+            "equilibrium_tutor", "chemistry_tutor", "simulate_experiment", "memory_student_get"} <= student_tools
+    assert "memory_teacher_get" not in student_tools
 
 
 def test_integrity_catches_bad_persona():

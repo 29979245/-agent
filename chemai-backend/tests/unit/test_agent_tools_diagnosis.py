@@ -8,6 +8,8 @@ from app.agents.tools import tools_diagnosis
 from app.agents.tools.context import ToolContext
 from app.core.exceptions import ForbiddenError
 from app.db.models import (
+    Account,
+    AccountRole,
     AuditStatus,
     Class,
     Difficulty,
@@ -95,6 +97,17 @@ def _teacher_ctx(db, **kw):
     return ToolContext(db=db, user={"user_id": 1, "role": "teacher"}, **kw)
 
 
+def _parent_ctx(db, parent, **kw):
+    """构造家长身份链：Account(id=user_id) → role_id=Parent.id（与 auth._issue_tokens 一致）。"""
+    account = Account(
+        username=f"acct_{parent.id}", password_hash="x",
+        role=AccountRole.parent, role_id=parent.id,
+    )
+    db.add(account)
+    db.flush()
+    return ToolContext(db=db, user={"user_id": account.id, "role": "parent"}, **kw)
+
+
 # ---------------- diagnose_barrier ----------------
 
 def test_diagnose_barrier_individual(db_session):
@@ -140,7 +153,7 @@ def test_diagnose_barrier_parent_privacy(db_session):
     db_session.flush()
     db_session.add(StudentParentBinding(parent_id=parent.id, student_id=s.id, bind_code="123456", status="active"))
     db_session.flush()
-    parent_ctx = ToolContext(db=db_session, user={"user_id": parent.id, "role": "parent"})
+    parent_ctx = _parent_ctx(db_session, parent)
     # 自己的孩子在允许范围
     ok = run(tools_diagnosis.diagnose_barrier(parent_ctx, student_id=s.id))
     assert ok["student_id"] == s.id
@@ -158,7 +171,7 @@ def test_diagnose_barrier_parent_class_forbidden(db_session):
     db_session.flush()
     db_session.add(StudentParentBinding(parent_id=parent.id, student_id=s.id, bind_code="123456", status="active"))
     db_session.flush()
-    parent_ctx = ToolContext(db=db_session, user={"user_id": parent.id, "role": "parent"})
+    parent_ctx = _parent_ctx(db_session, parent)
     # 纯班级参数
     with pytest.raises(ForbiddenError):
         run(tools_diagnosis.diagnose_barrier(parent_ctx, class_id=cls.id))

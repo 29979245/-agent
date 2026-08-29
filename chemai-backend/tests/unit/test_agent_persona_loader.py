@@ -47,16 +47,29 @@ def test_effective_skills_intersection_known():
 
 
 def test_effective_skills_expected_sets():
-    assert effective_skills("student") == ["web_search"]
-    assert effective_skills("parent") == ["weekly_report", "diagnose_barrier"]
+    # 学生开放 4 专题 + 通用辅导 + 实验模拟 + 联网搜索 + 自读记忆（periodic_law/organic 注册但按 §4.2 不进白名单）
+    assert set(effective_skills("student")) == {
+        "chemistry_tutor", "simulate_experiment", "web_search",
+        "ionic_equation_tutor", "stoichiometry_tutor", "redox_tutor", "equilibrium_tutor",
+        "memory_student_get",
+    }
+    # 全体角色可用记忆（TOOL_META PERSONAS），家长/导师补入 memory_student_get
+    assert set(effective_skills("parent")) == {"weekly_report", "diagnose_barrier", "memory_student_get"}
     tutor = effective_skills("tutor")
-    assert set(tutor) == {"search_exam_bank", "web_search", "show_exam_workbench"}
+    assert set(tutor) == {"chemistry_tutor", "search_exam_bank", "web_search",
+                          "show_exam_workbench", "simulate_experiment", "balance_equation",
+                          "memory_student_get"}
     teacher = effective_skills("teacher")
     assert "diagnose_barrier" in teacher
     assert "assign_adaptive_practice" in teacher
     assert "show_students" in teacher
     assert "delete_bank" in teacher  # 审批工具需教师可达（doc 30 §4.3 矩阵，delete_bank 需审批）
     assert "generate_questions" in teacher
+    # 本轮补入：OCR 3 + 记忆 2 + 家长报告 2
+    for t in ("query_ocr_progress", "grade_answer_sheets", "save_grading_results",
+              "memory_student_get", "memory_teacher_get",
+              "generate_parent_report", "send_report_to_parent"):
+        assert t in teacher
 
 
 def test_teacher_cannot_access_unknown():
@@ -72,12 +85,13 @@ def test_validate_personas_no_hard_problems():
     assert problems == [], f"Persona 校验存在硬性问题: {problems}"
 
 
-def test_unknown_skills_are_future_slice_placeholders():
-    """chem_skills（chemistry_tutor 等）为后续切片占位，属未注册 → unknown 告警。"""
-    unknown = set(unknown_skills("student"))
-    assert "chemistry_tutor" in unknown
-    # 占位工具不进入 effective_skills（不注入 LLM）
-    assert "chemistry_tutor" not in effective_skills("student")
+def test_no_unknown_skills_after_registration():
+    """辅导/记忆等切片工具已注册：各 Persona 白名单无未注册占位，全部进入 effective_skills。"""
+    for name in ALL_PERSONAS:
+        unknown = unknown_skills(name)
+        assert unknown == [], f"{name} 含未注册工具: {unknown}"
+        whitelist = load_persona(name).available_skills
+        assert set(effective_skills(name)) == set(whitelist), f"{name} 白名单未全部生效"
 
 
 def test_effective_skills_returns_sorted_whitelist():

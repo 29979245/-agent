@@ -212,7 +212,7 @@ def test_run_agent_chat_tool_roundtrip(tmp_path):
 
 
 def test_run_agent_chat_persona_toolset_bounded(tmp_path):
-    """student Persona 仅 web_search：模型无权调用诊断/出题工具。"""
+    """student Persona 仅辅导/搜索/自读记忆：模型无权调用诊断/出题/教师专用工具。"""
     calls = {}
 
     class TrapModel(BaseChatModel):
@@ -244,7 +244,10 @@ def test_run_agent_chat_persona_toolset_bounded(tmp_path):
         return frames
 
     asyncio.run(_run())
-    bound = calls["tools"]
-    assert bound == ["web_search"]
+    bound = set(calls["tools"])
+    assert bound == {"chemistry_tutor", "simulate_experiment", "web_search",
+                     "ionic_equation_tutor", "stoichiometry_tutor", "redox_tutor", "equilibrium_tutor",
+                     "memory_student_get"}
     assert "diagnose_barrier" not in bound
     assert "generate_questions" not in bound
+    assert "memory_teacher_get" not in bound
