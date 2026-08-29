@@ -149,6 +149,35 @@ def test_diagnose_barrier_parent_privacy(db_session):
         run(tools_diagnosis.diagnose_barrier(parent_ctx, student_id=other.id))
 
 
+def test_diagnose_barrier_parent_class_forbidden(db_session):
+    """家长携带班级参数（含 class_id 或 class_name）→ ForbiddenError（doc 30 §4.2）。"""
+    _, _, cls = _make_org(db_session)
+    s = _make_student(db_session, cls, name="小明")
+    parent = Parent(name="明爸", phone="13800000002")
+    db_session.add(parent)
+    db_session.flush()
+    db_session.add(StudentParentBinding(parent_id=parent.id, student_id=s.id, bind_code="123456", status="active"))
+    db_session.flush()
+    parent_ctx = ToolContext(db=db_session, user={"user_id": parent.id, "role": "parent"})
+    # 纯班级参数
+    with pytest.raises(ForbiddenError):
+        run(tools_diagnosis.diagnose_barrier(parent_ctx, class_id=cls.id))
+    with pytest.raises(ForbiddenError):
+        run(tools_diagnosis.diagnose_barrier(parent_ctx, class_name="高一(1)班"))
+    # student + class 双参数：class 即越权意图，同样拒绝
+    with pytest.raises(ForbiddenError):
+        run(tools_diagnosis.diagnose_barrier(parent_ctx, student_id=s.id, class_id=cls.id))
+
+
+def test_diagnose_barrier_teacher_class_ok(db_session):
+    """教师携带班级参数正常返回班级分布（家长门控不误伤教师）。"""
+    _, _, cls = _make_org(db_session)
+    _make_student(db_session, cls, name="小明")
+    out = run(tools_diagnosis.diagnose_barrier(_teacher_ctx(db_session), class_id=cls.id))
+    assert out["class_id"] == cls.id
+    assert out["total_students"] == 1
+
+
 def test_show_diagnosis_uses_panel_component(db_session):
     _, _, cls = _make_org(db_session)
     s = _make_student(db_session, cls)

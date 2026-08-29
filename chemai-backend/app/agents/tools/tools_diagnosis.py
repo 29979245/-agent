@@ -198,6 +198,10 @@ async def diagnose_barrier(
     if ctx.db is None:
         return {"error": "db_unavailable", "message": "数据库未注入", "_guard_error": True}
 
+    # 家长隐私（doc 30 §4.2）：家长仅支持个体诊断，携带班级参数即越权意图（含 student+class 双参数）
+    if _user_role(ctx) == "parent" and (class_id is not None or class_name):
+        raise ForbiddenError(detail="家长仅支持个体诊断")
+
     student, cands = _resolve_student(ctx, student_id, student_name)
     if cands:
         return {"candidates": cands, "message": "匹配到多位学生，请指定具体学生", "total_candidates": len(cands)}
