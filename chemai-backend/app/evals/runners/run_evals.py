@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 from app.config import settings
+from app.evals.agent_tools import AGENT_TOOLS_PASS_RATE, evaluate_agent_tools
 from app.evals.cases import composite_correctness
 from app.evals.diagnosis import DIAGNOSIS_PASS_RATE, evaluate_diagnosis_barrier
 from app.services.audit.review import (
@@ -97,6 +98,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[l1/l2] {name}: {rate:.0%} {status}")
             if rate < L1L2_PASS_RATE:
                 failures.append(f"{name} {rate:.0%} < {L1L2_PASS_RATE:.0%}")
+
+        # 10.1：Agent 工具组（注册表/Guard 四层/剥离/Persona 过滤，LLM-free 确定性检查）
+        at = evaluate_agent_tools()
+        at_status = "PASS" if at["structural"] and at["accuracy"] >= AGENT_TOOLS_PASS_RATE else "FAIL"
+        print(f"[l1/l2] agent_tools: 结构 {'OK' if at['structural'] else 'FAIL'} "
+              f"通过率 {at['accuracy']:.0%} {at_status}")
+        results["agent_tools"] = at["accuracy"]
+        if at_status == "FAIL":
+            failures.append(f"agent_tools 结构或通过率不合格: {at['structural_failures']}")
 
     if args.tier in ("l3", "all"):
         accuracy = _review_scientificity_accuracy(FallbackReviewLLMClient())

@@ -1,5 +1,6 @@
 {
   "compose_overall_status": 1.0,
   "classify_review": 1.0,
-  "diagnosis_barrier": 0.92
+  "diagnosis_barrier": 0.92,
+  "agent_tools": 1.0
 }
