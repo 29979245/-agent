@@ -35,8 +35,9 @@ register_tool(ToolMeta(
     name="search_exam_bank",
     title="搜索真题",
     description=(
-        "搜索本地真题库。适用：用户要求查找/搜索题目。三级搜索：本地关键词→向量召回→联网补齐；"
-        "本地结果不足 3 条时自动标记 AI 补充。NOT for：直接生成新题目（用 generate_questions）。"
+        "搜索本地真题库。适用：用户要求查找/搜索题目。三级搜索：本地关键词→向量召回→联网补齐，"
+        "支持 source/region/knowledge_point 过滤；向量命中相似度 ≥0.6 才入列；本地结果不足 3 条时自动标记 AI 补充；"
+        "命中含图题目会发 exam_images 事件。NOT for：直接生成新题目（用 generate_questions）。"
     ),
     personas=("teacher", "tutor"),
     call_limit=3,
@@ -62,7 +63,9 @@ register_tool(ToolMeta(
     name="generate_questions",
     title="AI 出题",
     description=(
-        "按知识点/难度/数量生成题目：RAG 检索→生成→化学式标准化→四维审核。适用：用户要求生成/编写题目。"
+        "按知识点/难度/数量生成题目：RAG 检索→生成→化学式标准化→四维审核（配平/条件/产物/结构；"
+        "仅配平失败阻断，条件/产物/结构问题软标记 warning 不阻断），"
+        "题目带陷阱提示 trap_hint 与 RAG 元数据。适用：用户要求生成/编写题目。"
         "NOT for：仅搜索已有题目（用 search_exam_bank）。"
     ),
     personas=("teacher", "tutor"),
