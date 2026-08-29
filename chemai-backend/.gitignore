@@ -8,6 +8,7 @@ data/*.db-*
 data/chroma/
 data/exam_bank/
 data/ocr_uploads/
+data/audit/
 data/*.log
 node_modules/
 dist/

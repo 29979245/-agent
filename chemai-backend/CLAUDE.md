@@ -64,18 +64,24 @@ app/
     analytics/        学情面板 + 预警引擎
     ocr/              UploadSession 状态机、三引擎、LLM 批改、OCRTask 队列
   agents/
-    core/             Gateway/Planner/Context Manager/GuardState/记忆/审计/模型工厂/SSE 适配器
-    personas/         4 个 Persona YAML（teacher/student/tutor/parent）
-    tools/            工具组（出题与题库/诊断与学生/辅导/OCR批改/记忆/家长报告/浏览器）
-    chem_skills/      10 个化学技能（苏格拉底辅导、模拟实验、配平等）
-    factories/        v1/v2 Agent 工厂 + 辅导工具工厂
+    gateway.py        LLM+关键词意图分类，navigate 快捷路径
+    guard.py          GuardState 四层护栏 + 特殊字段剥离
+    agent.py          ReAct v2 工厂（LangGraph）+ version 门 + 对话执行管线
+    sse_adapter.py    astream_events → 12 SSE 事件（含 tool_args 聚合）
+    context.py        三层上下文裁剪 + 消息组装
+    audit.py          JSONL 审计 + 环形缓冲
+    memory.py         三层记忆（工作/情景/档案）+ 长期存储（已单测，接线留后续切片）
+    factories/        LLM 模型工厂（Provider 回退链 + 熔断）+ Agent 工厂
+    tools/            14 个 slice-1 工具 + TOOL_META + 注册表
     mcp/              MCP 工具服务器（16 个 MCP 工具）
+    personas/         4 个 Persona YAML（teacher/student/tutor/parent）
+    chem_skills/      保留空包（底层实现后续切片填充）
   evals/              Golden 数据集、L1/L2/L3 运行器、基线
 tests/                单元 / 集成 / 评测
 ```
 
 ## 关键约定
 - 三个数据库文件固定位于 `data/`，不写入版本库
-- Agent 对话使用 SSE 流式输出；审批类操作必须走 GuardState 第 4 层审批门控
+- Agent 对话使用 SSE 流式输出；Agent 自主路径的审批类操作必须走 GuardState 第 4 层审批门控；MCP RPC 写工具按角色门控（边界见 ADR-0011）
 - 化学方程式一律 KaTeX/LaTeX 格式，经化学式归一化函数处理
 - 修改代码后运行 `graphify update .` 保持知识图谱同步
