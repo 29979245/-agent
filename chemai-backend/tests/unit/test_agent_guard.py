@@ -48,8 +48,8 @@ def test_dedup_key_sorts_args():
 
 def test_approval_tool_blocked_without_approval():
     g = GuardState()
-    args = {"class_id": 1}
-    r = g.check_approval("assign_adaptive_practice", args)
+    args = {"bank_name": "高一氧化还原"}
+    r = g.check_approval("delete_bank", args)
     assert r.ok is False
     assert r.error_code == "requires_approval_blocked"
     assert r.payload["requires_approval"] is True
@@ -57,9 +57,9 @@ def test_approval_tool_blocked_without_approval():
 
 def test_approval_tool_passes_after_approved():
     g = GuardState()
-    args = {"class_id": 1}
-    g.mark_approved("assign_adaptive_practice", args)
-    assert g.check_approval("assign_adaptive_practice", args).ok is True
+    args = {"bank_name": "高一氧化还原"}
+    g.mark_approved("delete_bank", args)
+    assert g.check_approval("delete_bank", args).ok is True
 
 
 def test_non_approval_tool_passes_layer4():
@@ -68,8 +68,13 @@ def test_non_approval_tool_passes_layer4():
 
 
 def test_approval_tools_set():
-    assert "assign_adaptive_practice" in APPROVAL_TOOLS
-    assert "delete_bank" in APPROVAL_TOOLS
+    assert APPROVAL_TOOLS == frozenset({"delete_bank"})
+
+
+def test_assign_adaptive_practice_no_longer_approval():
+    """design D2：assign_adaptive_practice 改为 preview-only，不再进入审批门控。"""
+    g = GuardState()
+    assert g.check_approval("assign_adaptive_practice", {"class_id": 1}).ok is True
 
 
 def test_full_check_pipeline():

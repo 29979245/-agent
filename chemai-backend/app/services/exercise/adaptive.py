@@ -141,3 +141,98 @@ class AdaptivePracticeService:
             "batch_limit": BATCH_LIMIT,
             "remaining": remaining,
         }
+
+    # ---- 预览（不落库，doc 28 §六 / design D1） ----
+
+    def preview_for_student(
+        self, student: Student, count: int = 3, exclude_ref_ids: tuple[str, ...] = ()
+    ) -> dict:
+        """单生预览：确定目标 + 抽样选中题目，不创建 ExamRecord、不复制题目。"""
+        plan = self.plan_for(student)
+        selected, shortfall = sample_questions(
+            self.bank, plan["knowledge_points"], plan["difficulty"],
+            count=count, exclude_ref_ids=exclude_ref_ids, choice_only=True,
+        )
+        return {
+            "student_id": student.id,
+            "student_name": student.name,
+            **plan,
+            "question_count": len(selected),
+            "shortfall": shortfall,
+            "question_refs": [ref for ref, _hq in selected],
+        }
+
+    def preview_batch(
+        self,
+        student_ids: list[int],
+        count: int = 3,
+        exclude_ref_ids: tuple[str, ...] = (),
+    ) -> dict:
+        """批量预览：每批最多 5 人，无 DB 写入，可安全重放。"""
+        remaining = max(0, len(student_ids) - BATCH_LIMIT)
+        results: list[dict] = []
+        for sid in student_ids[:BATCH_LIMIT]:
+            student = self.db.get(Student, sid)
+            if student is None:
+                continue
+            results.append(self.preview_for_student(student, count=count, exclude_ref_ids=exclude_ref_ids))
+        return {
+            "results": results,
+            "batch_limit": BATCH_LIMIT,
+            "remaining": remaining,
+        }
+
+    # ---- 确认落库（doc 28 §六 / design D2） ----
+
+    def persist_batch(self, items: list[dict], name: str = "自适应练习") -> dict:
+        """按教师确认的 question_refs 逐生落库：校验学生存在 + refs 可解析，非法整批拒绝。
+
+        items: [{student_id, question_refs:[ref_id, ...]}]，ref_id 形如 region/year/paper#qid。
+        所有项合法才落库；任一非法（学生不存在 / ref 不可解析）→ 抛 ValueError 且零写入。
+        """
+        if not items:
+            return {"results": [], "batch_limit": BATCH_LIMIT, "remaining": 0}
+        prepared: list[tuple[Student, list[tuple[str, HistoricalQuestion]]]] = []
+        for item in items:
+            sid = item.get("student_id")
+            refs = item.get("question_refs") or []
+            student = self.db.get(Student, sid)
+            if student is None:
+                raise ValueError(f"学生不存在：{sid}")
+            resolved: list[tuple[str, HistoricalQuestion]] = []
+            for ref in refs:
+                hq = self.bank.get_question(ref)
+                if hq is None:
+                    raise ValueError(f"题目引用不可解析：{ref}")
+                resolved.append((ref, hq))
+            prepared.append((student, resolved))
+        # 全部校验通过后统一落库（防部分成功半写）
+        results: list[dict] = []
+        for student, resolved in prepared:
+            plan = self.plan_for(student)
+            exam = ExamRecord(
+                class_id=None,
+                student_id=student.id,
+                name=name,
+                exam_type=ExamType.practice,
+                status=ExamStatus.published,
+                exam_date=datetime.date.today(),
+                question_stats={
+                    "difficulty": plan["difficulty"],
+                    "zpd_difficulty": plan["zpd_difficulty"],
+                    "barrier": plan["barrier"],
+                    "deadline": None,
+                },
+            )
+            self.db.add(exam)
+            self.db.flush()
+            for _ref, hq in resolved:
+                self.db.add(copy_historical_question(self.db, hq, exam.id, plan["difficulty"]))
+            self.db.flush()
+            results.append({
+                "student_id": student.id,
+                "exam_id": exam.id,
+                "practice_id": exam.id,
+                "question_count": len(resolved),
+            })
+        return {"results": results, "batch_limit": BATCH_LIMIT, "remaining": 0}

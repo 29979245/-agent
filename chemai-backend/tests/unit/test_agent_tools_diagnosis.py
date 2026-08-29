@@ -225,17 +225,24 @@ def test_weekly_report_generates(db_session):
 
 # ---------------- assign_adaptive_practice ----------------
 
-def test_assign_adaptive_practice(monkeypatch, db_session):
+def test_assign_adaptive_practice_preview_only(monkeypatch, db_session):
+    """assign_adaptive_practice 改为 preview-only：调用 preview_batch，不写库（doc 28 §六）。"""
     _, _, cls = _make_org(db_session)
     s = _make_student(db_session, cls)
+    before = db_session.query(ExamRecord).count()
 
     class FakeAdaptive:
         def __init__(self, db):
             pass
 
-        def generate_batch(self, student_ids, count=3, name="自适应练习", exclude_ref_ids=()):
+        def preview_batch(self, student_ids, count=3, exclude_ref_ids=()):
             return {
-                "results": [{"student_id": sid, "exam_id": 1, "question_count": count, "difficulty": "medium"} for sid in student_ids],
+                "results": [{
+                    "student_id": sid, "zpd_difficulty": "medium", "difficulty": "medium",
+                    "barrier": "concept", "knowledge_points": ["氧化还原反应"], "weak_kps": [],
+                    "question_count": count, "shortfall": 0,
+                    "question_refs": ["全国卷/2024/高考化学#q1"],
+                } for sid in student_ids],
                 "batch_limit": 5,
                 "remaining": 0,
             }
@@ -243,7 +250,40 @@ def test_assign_adaptive_practice(monkeypatch, db_session):
     monkeypatch.setattr(tools_diagnosis, "AdaptivePracticeService", FakeAdaptive)
     out = run(tools_diagnosis.assign_adaptive_practice(_teacher_ctx(db_session), class_id=cls.id, count=3))
     assert out["class_id"] == cls.id
+    assert out["batch_limit"] == 5
     assert out["results"][0]["student_id"] == s.id
+    assert out["results"][0]["question_refs"]
+    assert db_session.query(ExamRecord).count() == before  # 不写库
+
+
+def test_assign_adaptive_practice_no_bank_writes(monkeypatch, db_session):
+    """真实 preview 路径：无 ExamRecord、无 Question 复制，可安全重放。"""
+    from app.services.exercise.adaptive import AdaptivePracticeService
+    from app.services.question.historical import reload_bank
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td) / "全国卷" / "2024"
+        p.mkdir(parents=True, exist_ok=True)
+        (p / "真题.json").write_text(
+            '{"questions": [{"id": "q1", "content": "真题A", "answer": "B", '
+            '"knowledge_points": ["氧化还原反应"], "difficulty": "easy", "options": ["A", "B", "C", "D"]}]}',
+            encoding="utf-8",
+        )
+        bank = reload_bank(td)
+        monkeypatch.setattr(tools_diagnosis, "AdaptivePracticeService",
+                            lambda db: AdaptivePracticeService(db, bank=bank))
+        _, _, cls = _make_org(db_session)
+        s = _make_student(db_session, cls)
+        exam_before = db_session.query(ExamRecord).count()
+        q_before = db_session.query(Question).count()
+        out = run(tools_diagnosis.assign_adaptive_practice(_teacher_ctx(db_session), class_id=cls.id, count=3))
+        assert len(out["results"]) == 1
+        assert out["results"][0]["student_id"] == s.id
+        assert out["results"][0]["question_refs"]  # 有选中题目引用
+        assert db_session.query(ExamRecord).count() == exam_before
+        assert db_session.query(Question).count() == q_before
 
 
 # ---------------- generate_learning_plan / send_learning_plan ----------------

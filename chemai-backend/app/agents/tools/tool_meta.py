@@ -137,10 +137,9 @@ register_tool(ToolMeta(
 register_tool(ToolMeta(
     name="assign_adaptive_practice",
     title="布置自适应练习",
-    description="为班级学生生成个性化 ZPD 练习并布置。破坏性操作，需教师审批确认。",
+    description="为班级学生生成个性化 ZPD 练习预览（不落库）。确认后由前端调用 API 持久化（doc 28 §六）。",
     personas=("teacher",),
     call_limit=1,
-    approval=True,
     icon="📝",
 ))
 register_tool(ToolMeta(

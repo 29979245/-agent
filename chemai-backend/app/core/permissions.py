@@ -69,7 +69,7 @@ ROLE_PERMISSIONS: dict[str, dict[str, set[str]]] = {
         "ocr": {"create", "read", "update"},
         "grading": {"create", "read", "update"},
         "diagnosis": {"create", "read", "update"},
-        "practice": {"read"},
+        "practice": {"read", "create"},  # D2：教师确认自适应练习预览后下发落库
         "warning": {"read", "update", "create"},
         "report": {"read"},
         "account": {"update"},
