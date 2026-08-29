@@ -1,6 +1,6 @@
 # Agent 审批边界：Guard L4 仅限自主路径，审批恢复为重开流（非 interrupt）
 
-Agent 阶段（phase-6）决策（2026-08-29 code-review 补记）：两条审批边界固化，防止后人按 CLAUDE.md「审批类操作必须走 GuardState 第 4 层」一刀切误判。
+Agent 阶段（phase-6）决策（2026-08-29 code-review 补记）：审批/审计边界固化，防止后人按 CLAUDE.md「审批类操作必须走 GuardState 第 4 层」一刀切误判。
 
 ## 决策 1：GuardState L4 审批门控只覆盖 Agent 自主工具路径
 
@@ -20,6 +20,10 @@ Agent 阶段（phase-6）决策（2026-08-29 code-review 补记）：两条审�
 **Why**：重开流复用同一 `{subject}:{thread_id}` 检查点键，对话历史经 ContextManager 裁剪后完整续上，LLM 有完整上下文。相对 interrupt 代价低、与现有 checkpointer 拓扑（ADR-0010 单写者）无冲突。
 
 **接受的风险**：被批工具的执行依赖 LLM 按指令重调——若 LLM 不重调，被批工具永不执行。缓解：指令是强指令，MiMo/qwen 按指令重调成功率很高；失败用户可见，可重发。`mark_approved` 精确匹配 `(tool, sorted_args)`，LLM 用不同参数重调会重新进入审批（D11 防重放语义，行为正确）。
+
+## 决策 3：MCP 写工具不走 Guard L4 审批，但仍落审计日志
+
+MCP 路径不做 Guard L4 审批（决策 1），但每次 MCP 工具执行**仍记录 JSONL 审计**（`call_mcp_tool` 内调 `audit_logger.log`，persona=调用者角色）。审批与审计是正交的两条边界：审批防「LLM 自主性失控」需要人在环；审计是对所有工具执行的追责，覆盖 MCP 这类明确意图的 RPC 同样成立。角色越权 / 参数校验失败发生在执行前，不产生审计条目。
 
 ## 后果
 

@@ -6,9 +6,10 @@
 """
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from app.agents.mcp.registry import (
+    MCPTool,
     MCPToolForbidden,
     MCPToolNotFound,
     call_mcp_tool,
@@ -104,6 +105,93 @@ def test_registry_call_role_gate_allows_teacher(db_session):
         "trigger_warning_check", db=db_session, user=_uc("teacher"), arguments={}
     ))
     assert "total" in result  # EarlyWarningService summary
+
+
+# ---------------------------------------------------------------- 审计接入
+
+
+class _AuditStub:
+    """记录 audit_logger.log 调用，避免单测污染真实 data/audit/（与 test_agent_audit_memory 同约定）。"""
+
+    def __init__(self):
+        self.calls = []
+
+    def log(self, **kw):
+        self.calls.append(kw)
+
+
+class _NoArgs(BaseModel):
+    pass
+
+
+def test_registry_call_writes_audit(db_session, monkeypatch):
+    """执行成功 → 追加审计条目（persona=调用者角色，无 error）。"""
+    import asyncio
+    import app.agents.mcp.registry as mcp_registry
+
+    async def _ok(db, user, **args):
+        return {"ok": True}
+
+    stub = _AuditStub()
+    monkeypatch.setattr(mcp_registry, "audit_logger", stub)
+    monkeypatch.setattr(mcp_registry, "get_mcp_tool",
+                        lambda name: MCPTool(name="test_audit_ok", description="d", handler=_ok, args_schema=_NoArgs))
+    result = asyncio.run(call_mcp_tool("test_audit_ok", db=db_session, user=_uc("teacher"), arguments={}))
+    assert result == {"ok": True}
+    assert len(stub.calls) == 1
+    entry = stub.calls[0]
+    assert entry["skill_name"] == "test_audit_ok"
+    assert entry["persona"] == "teacher"
+    assert "error" not in entry
+
+
+def test_registry_call_failure_writes_audit_error(db_session, monkeypatch):
+    """handler 抛错 → 记录 error 审计后原样上抛。"""
+    import asyncio
+    import app.agents.mcp.registry as mcp_registry
+
+    async def _boom(db, user, **args):
+        raise RuntimeError("boom")
+
+    stub = _AuditStub()
+    monkeypatch.setattr(mcp_registry, "audit_logger", stub)
+    monkeypatch.setattr(mcp_registry, "get_mcp_tool",
+                        lambda name: MCPTool(name="test_audit_fail", description="d", handler=_boom, args_schema=_NoArgs))
+    with pytest.raises(RuntimeError):
+        asyncio.run(call_mcp_tool("test_audit_fail", db=db_session, user=_uc("student"), arguments={}))
+    assert len(stub.calls) == 1
+    entry = stub.calls[0]
+    assert entry["skill_name"] == "test_audit_fail"
+    assert entry["persona"] == "student"
+    assert "boom" in entry["error"]
+
+
+def test_registry_call_validation_error_not_audited(db_session, monkeypatch):
+    """参数校验失败发生在执行前 → 不产生审计条目。"""
+    import asyncio
+    import app.agents.mcp.registry as mcp_registry
+
+    stub = _AuditStub()
+    monkeypatch.setattr(mcp_registry, "audit_logger", stub)
+    with pytest.raises(ValidationError):
+        asyncio.run(call_mcp_tool(
+            "get_review_tasks", db=db_session, user=_uc("student"), arguments={"student_id": "x"}
+        ))
+    assert stub.calls == []
+
+
+def test_registry_call_role_gate_not_audited(db_session, monkeypatch):
+    """角色越权发生在执行前 → 不产生审计条目。"""
+    import asyncio
+    import app.agents.mcp.registry as mcp_registry
+
+    stub = _AuditStub()
+    monkeypatch.setattr(mcp_registry, "audit_logger", stub)
+    with pytest.raises(MCPToolForbidden):
+        asyncio.run(call_mcp_tool(
+            "trigger_warning_check", db=db_session, user=_uc("student"), arguments={}
+        ))
+    assert stub.calls == []
 
 
 # ---------------------------------------------------------------- 端点

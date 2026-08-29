@@ -7,10 +7,13 @@
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from pydantic import BaseModel
+
+from app.agents.audit import audit_logger
 
 
 class MCPToolNotFound(RuntimeError):
@@ -72,9 +75,25 @@ def list_mcp_tools() -> list[dict]:
 
 
 async def call_mcp_tool(name: str, *, db, user, arguments: dict) -> Any:
-    """按名执行 MCP 工具：角色门控 → 参数校验 → handler(db, user, **args)。"""
+    """按名执行 MCP 工具：角色门控 → 参数校验 → handler(db, user, **args) → 审计。
+
+    审计口径（spec「审计日志」：任一工具执行完成 → JSONL + 环形缓冲）：
+    仅实际执行后记录——角色越权 / 参数校验失败不产生审计条目；
+    执行成功与失败均记录，persona 取调用者角色。
+    """
     tool = get_mcp_tool(name)
     if tool.requires and getattr(user, "role", None) not in tool.requires:
         raise MCPToolForbidden(f"角色 {getattr(user, 'role', None)} 无权调用工具 {name}")
     args = tool.args_schema.model_validate(arguments)
-    return await tool.handler(db=db, user=user, **args.model_dump())
+    persona = getattr(user, "role", "") or "mcp"
+    started = time.monotonic()
+    try:
+        result = await tool.handler(db=db, user=user, **args.model_dump())
+    except Exception as exc:  # noqa: BLE001 —— 执行失败仍记录审计后上抛
+        audit_logger.log(persona=persona, skill_name=name, args=args.model_dump(),
+                         result_summary=str(exc), duration_ms=(time.monotonic() - started) * 1000.0,
+                         error=str(exc))
+        raise
+    audit_logger.log(persona=persona, skill_name=name, args=args.model_dump(),
+                     result_summary=result, duration_ms=(time.monotonic() - started) * 1000.0)
+    return result
