@@ -53,6 +53,38 @@ register_impl("assign_adaptive_practice", tools_diagnosis.AssignAdaptivePractice
 register_impl("generate_learning_plan", tools_diagnosis.GenerateLearningPlanArgs, tools_diagnosis.generate_learning_plan)
 register_impl("send_learning_plan", tools_diagnosis.SendLearningPlanArgs, tools_diagnosis.send_learning_plan)
 
+# ---------- 辅导组（tools_tutoring） ----------
+from app.agents.tools import tools_tutoring  # noqa: E402
+
+register_impl("ionic_equation_tutor", tools_tutoring.TopicTutorArgs, tools_tutoring.ionic_equation_tutor)
+register_impl("stoichiometry_tutor", tools_tutoring.TopicTutorArgs, tools_tutoring.stoichiometry_tutor)
+register_impl("redox_tutor", tools_tutoring.TopicTutorArgs, tools_tutoring.redox_tutor)
+register_impl("equilibrium_tutor", tools_tutoring.TopicTutorArgs, tools_tutoring.equilibrium_tutor)
+register_impl("periodic_law_tutor", tools_tutoring.TopicTutorArgs, tools_tutoring.periodic_law_tutor)
+register_impl("organic_tutor", tools_tutoring.TopicTutorArgs, tools_tutoring.organic_tutor)
+register_impl("chemistry_tutor", tools_tutoring.ChemistryTutorArgs, tools_tutoring.chemistry_tutor)
+register_impl("simulate_experiment", tools_tutoring.SimulateExperimentArgs, tools_tutoring.simulate_experiment)
+register_impl("balance_equation", tools_tutoring.BalanceEquationArgs, tools_tutoring.balance_equation)
+
+# ---------- OCR 批改组（tools_ocr） ----------
+from app.agents.tools import tools_ocr  # noqa: E402
+
+register_impl("query_ocr_progress", tools_ocr.QueryOcrProgressArgs, tools_ocr.query_ocr_progress)
+register_impl("grade_answer_sheets", tools_ocr.GradeAnswerSheetsArgs, tools_ocr.grade_answer_sheets)
+register_impl("save_grading_results", tools_ocr.SaveGradingResultsArgs, tools_ocr.save_grading_results)
+
+# ---------- 记忆组（tools_memory） ----------
+from app.agents.tools import tools_memory  # noqa: E402
+
+register_impl("memory_student_get", tools_memory.MemoryStudentGetArgs, tools_memory.memory_student_get)
+register_impl("memory_teacher_get", tools_memory.MemoryTeacherGetArgs, tools_memory.memory_teacher_get)
+
+# ---------- 家长报告组（tools_parent_report） ----------
+from app.agents.tools import tools_parent_report  # noqa: E402
+
+register_impl("generate_parent_report", tools_parent_report.GenerateParentReportArgs, tools_parent_report.generate_parent_report)
+register_impl("send_report_to_parent", tools_parent_report.SendReportToParentArgs, tools_parent_report.send_report_to_parent)
+
 
 # ---------------------------------------------------------------- 执行包装
 

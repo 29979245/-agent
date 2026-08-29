@@ -35,11 +35,34 @@ PREREQUISITES: dict[str, Callable[[dict], str | None]] = {
         None if (a.get("class_id") or a.get("class_name"))
         else "至少一个班级标识非空"
     ),
+    "query_ocr_progress": lambda a: (
+        None if a.get("batch_id") else "batch_id 必填"
+    ),
+    "grade_answer_sheets": lambda a: (
+        None if a.get("batch_id") else "batch_id 必填"
+    ),
+    "save_grading_results": lambda a: (
+        None if a.get("batch_id") else "batch_id 必填"
+    ),
+    "memory_student_get": lambda a: (
+        None if a.get("student_id") else "student_id 必填"
+    ),
+    "generate_parent_report": lambda a: (
+        None if a.get("student_id") else "student_id 必填"
+    ),
+    "send_report_to_parent": lambda a: (
+        None if a.get("student_id") else "student_id 必填"
+    ),
 }
 
 # 审批门控工具（doc 30 §5.2 第 4 层 / design D5）
 # assign_adaptive_practice 已改为 preview-only，审批移至 API 确认端点（design D2）
-APPROVAL_TOOLS: frozenset[str] = frozenset({"delete_bank"})
+APPROVAL_TOOLS: frozenset[str] = frozenset({
+    "delete_bank",
+    "grade_answer_sheets",
+    "save_grading_results",
+    "send_report_to_parent",
+})
 
 
 @dataclass

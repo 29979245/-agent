@@ -19,4 +19,11 @@ available_skills:
   - show_students
   - balance_equation
   - assign_adaptive_practice
+  - query_ocr_progress
+  - grade_answer_sheets
+  - save_grading_results
+  - memory_student_get
+  - memory_teacher_get
+  - generate_parent_report
+  - send_report_to_parent
 data_access: {}

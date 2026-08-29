@@ -12,4 +12,5 @@ available_skills:
   - show_exam_workbench
   - simulate_experiment
   - balance_equation
+  - memory_student_get
 data_access: {}

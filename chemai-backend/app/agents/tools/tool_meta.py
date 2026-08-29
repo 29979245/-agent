@@ -159,6 +159,145 @@ register_tool(ToolMeta(
     icon="✈️",
 ))
 
+# ---------- 辅导（9 工具，doc 30 §3.4） ----------
+register_tool(ToolMeta(
+    name="ionic_equation_tutor",
+    title="离子方程式辅导",
+    description="苏格拉底四步法辅导离子方程式：判断可拆物质→写成离子→删不变离子→检查守恒。适用：学生问离子方程式的书写/配平。NOT for：实验模拟（用 simulate_experiment）。",
+    personas=("student",),
+    call_limit=5,
+    icon="⚗️",
+))
+register_tool(ToolMeta(
+    name="stoichiometry_tutor",
+    title="化学计量辅导",
+    description="苏格拉底四步法辅导化学计量计算：提取已知量→选公式→列关系式→分步计算。适用：物质的量/浓度/产率计算辅导。",
+    personas=("student",),
+    call_limit=5,
+    icon="⚖️",
+))
+register_tool(ToolMeta(
+    name="redox_tutor",
+    title="氧化还原辅导",
+    description="苏格拉底四步法辅导氧化还原：标化合价→找升降→电子守恒配平。适用：氧化还原判断与配平辅导。",
+    personas=("student",),
+    call_limit=5,
+    icon="🔁",
+))
+register_tool(ToolMeta(
+    name="equilibrium_tutor",
+    title="化学平衡辅导",
+    description="苏格拉底四步法辅导化学平衡：分析平衡体系→勒夏特列原理→三段式计算。适用：平衡移动/转化率/三段式计算辅导。",
+    personas=("student",),
+    call_limit=5,
+    icon="⚖️",
+))
+register_tool(ToolMeta(
+    name="periodic_law_tutor",
+    title="周期律辅导",
+    description="苏格拉底四步法辅导周期律：位置→结构→性质推断。适用：元素周期表位置/结构/性质推断辅导。",
+    personas=("student",),
+    call_limit=5,
+    icon="🔬",
+))
+register_tool(ToolMeta(
+    name="organic_tutor",
+    title="有机推断辅导",
+    description="苏格拉底四步法辅导有机推断：逆合成分析+官能团转化。适用：有机物推断/官能团转化辅导。",
+    personas=("student",),
+    call_limit=5,
+    icon="🧪",
+))
+register_tool(ToolMeta(
+    name="chemistry_tutor",
+    title="通用辅导",
+    description="通用化学辅导：teacher 角色输出 800 字教研分析（考点/策略/误区），student/tutor 输出 500 字苏格拉底引导教学。适用：任意化学问题的讲解/辅导。",
+    personas=PERSONAS,
+    call_limit=3,
+    icon="📚",
+))
+register_tool(ToolMeta(
+    name="simulate_experiment",
+    title="模拟实验",
+    description="LLM 生成实验报告：目的/仪器/步骤/现象/方程式/原理/安全提醒/考点。适用：用户询问某个实验怎么做/现象/原理。",
+    personas=("student", "tutor"),
+    call_limit=2,
+    icon="🧫",
+))
+register_tool(ToolMeta(
+    name="balance_equation",
+    title="配平方程式",
+    description="确定性算法配平化学方程式并执行四维审核，返回两侧元素原子计数。适用：用户要求配平/验证方程式。不依赖 LLM 配平，结果确定。",
+    personas=("tutor", "teacher"),
+    call_limit=3,
+    icon="🔄",
+))
+
+# ---------- OCR 批改（3 工具，doc 30 §3.5） ----------
+register_tool(ToolMeta(
+    name="query_ocr_progress",
+    title="查询批改进度",
+    description="按批次聚合 OCR 任务进度（完成/失败/等待百分比 + 每张状态）。适用：用户询问某批次答题卡识别进度。",
+    personas=("teacher",),
+    call_limit=3,
+    icon="⏱️",
+))
+register_tool(ToolMeta(
+    name="grade_answer_sheets",
+    title="批量批改",
+    description="对已完成 OCR 识别的答题卡批量执行 LLM 批改，只计算不落库，返回批改汇总与逐题判定。适用：用户要求批改某批次。审批类写操作。",
+    personas=("teacher",),
+    call_limit=2,
+    approval=True,
+    icon="📝",
+))
+register_tool(ToolMeta(
+    name="save_grading_results",
+    title="保存批改结果",
+    description="逐学生校验学号后写入作答记录并自动触发障碍诊断，返回保存数量与诊断触发确认。适用：批改确认后保存。审批类写操作。",
+    personas=("teacher",),
+    call_limit=2,
+    approval=True,
+    icon="💾",
+))
+
+# ---------- 记忆（2 工具，doc 30 §3.6） ----------
+register_tool(ToolMeta(
+    name="memory_student_get",
+    title="学生记忆",
+    description="读取学生诊断历史（最近 5 条）与当前学习计划。适用：用户询问该学生的历史诊断/学习计划；学生仅可读自身记忆。",
+    personas=PERSONAS,
+    call_limit=1,
+    icon="🧠",
+))
+register_tool(ToolMeta(
+    name="memory_teacher_get",
+    title="教师偏好",
+    description="读取教师偏好设置（教学风格/难度偏好/班级配置）。适用：教师询问自己的偏好配置。仅 teacher 可调用。",
+    personas=("teacher",),
+    call_limit=1,
+    icon="⚙️",
+))
+
+# ---------- 家长报告（2 工具，doc 30 §3.7） ----------
+register_tool(ToolMeta(
+    name="generate_parent_report",
+    title="生成家长报告",
+    description="聚合练习/诊断/知识点数据生成家长可读周报预览，返回需确认标记，不发送。适用：教师要求为某学生生成家长报告预览。",
+    personas=("teacher",),
+    call_limit=5,
+    icon="📋",
+))
+register_tool(ToolMeta(
+    name="send_report_to_parent",
+    title="发送家长报告",
+    description="推送周报到已绑定家长的通知列表，返回发送确认与已通知数。审批类写操作（外部家长可见），需教师确认。",
+    personas=("teacher",),
+    call_limit=3,
+    approval=True,
+    icon="✉️",
+))
+
 
 def integrity_check() -> list[str]:
     """编译时完整性校验（doc 30 §3.1 / doc 30 §十七）。返回问题列表，空=通过。"""

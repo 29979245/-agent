@@ -3,7 +3,7 @@
 契约要点：
 - 智能名称解析（doc 30 §3.3）：纯数字走 ID，中文姓名模糊匹配，多结果返回候选列表。
 - 家长隐私：parent 角色仅可访问已绑定子女（data_access 约束），越权返回 403 语义错误。
-- weekly_report 复用既有生成管线，通过 _CompleteAdapter 把 Agent LLMClient 适配为 .complete(messages)。
+- weekly_report 复用既有生成管线，通过 CompleteAdapter 把 Agent LLMClient 适配为 .complete(messages)。
 """
 from __future__ import annotations
 
@@ -13,12 +13,14 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from app.core.exceptions import ForbiddenError, NotFoundError
-from app.db.models import Class, NotificationType, ParentNotification, Student, StudentParentBinding
+from app.db.models import Account, Class, NotificationType, ParentNotification, Student, StudentParentBinding
+from app.agents.tools import tools_memory
 from app.services.analytics.panel_service import class_students
 from app.services.analytics.weekly_report_service import get_or_generate_weekly_report
 from app.services.diagnosis.aggregation import normalize_profile
 from app.services.exercise.adaptive import AdaptivePracticeService
-from app.agents.tools.context import ToolContext
+from app.agents.tools.context import ToolContext, user_id as _user_id, user_role as _user_role
+from app.agents.tools.llm_adapter import CompleteAdapter
 
 BARRIER_AXES = ("concept", "reading", "expression")
 _DOMINANT_LABELS = {"concept": "概念理解", "reading": "审题障碍", "expression": "表述障碍"}
@@ -88,30 +90,18 @@ def _normalize_class_name(name: str) -> str:
     return "".join(out)
 
 
-def _user_role(ctx: ToolContext) -> str:
-    user = ctx.user
-    if user is None:
-        return ""
-    if isinstance(user, dict):
-        return str(user.get("role") or "")
-    return str(getattr(user, "role", "") or "")
-
-
-def _user_id(ctx: ToolContext) -> int:
-    user = ctx.user
-    if user is None:
-        return 0
-    if isinstance(user, dict):
-        return int(user.get("user_id") or 0)
-    return int(getattr(user, "user_id", 0) or 0)
-
-
 def _bound_student_ids(ctx: ToolContext) -> set[int]:
-    """家长角色可访问的子女 id 集合（StudentParentBinding active）。"""
+    """家长角色可访问的子女 id 集合（StudentParentBinding active）。
+
+    身份链：user_id = Account.id → Account.role_id = Parent.id → 绑定表。
+    """
     if ctx.db is None or _user_role(ctx) != "parent":
         return set()
+    account = ctx.db.get(Account, _user_id(ctx))
+    if account is None:
+        return set()
     rows = ctx.db.query(StudentParentBinding.student_id).filter(
-        StudentParentBinding.parent_id == _user_id(ctx),
+        StudentParentBinding.parent_id == account.role_id,
         StudentParentBinding.status == "active",
     ).all()
     return {row[0] for row in rows}
@@ -206,6 +196,8 @@ async def diagnose_barrier(
     if cands:
         return {"candidates": cands, "message": "匹配到多位学生，请指定具体学生", "total_candidates": len(cands)}
     if student is not None:
+        # D3 写接线①：个体诊断完成 → 画像快照写长期记忆（best-effort，供 memory_student_get 读回）
+        tools_memory.push_student_diagnosis_memory(ctx, student.id, source="diagnose_barrier")
         return {
             "student_id": student.id,
             "name": student.name,
@@ -293,19 +285,6 @@ async def show_students(
     }
 
 
-class _CompleteAdapter:
-    """把 Agent LLMClient 适配为 .complete(messages)->str（周报/诊断既有服务依赖）。
-
-    使用同步 complete_chain：不驱动事件循环，在 async 工具上下文内调用安全。
-    """
-
-    def __init__(self, llm) -> None:
-        self._llm = llm
-
-    def complete(self, messages: list[dict]) -> str:
-        return self._llm.complete_chain(messages)
-
-
 async def weekly_report(
     ctx: ToolContext,
     student_id: Optional[int] = None,
@@ -323,7 +302,7 @@ async def weekly_report(
         return {"error": "not_found", "message": "未找到该学生，请提供学生 ID 或姓名", "_guard_error": True}
     if ctx.llm is None:
         return {"error": "llm_unavailable", "message": "LLM 未配置，无法生成周报", "_guard_error": True}
-    client = _CompleteAdapter(ctx.llm)
+    client = CompleteAdapter(ctx.llm)
     report = get_or_generate_weekly_report(ctx.db, student.id, client=client)
     return {
         "student_id": student.id,

@@ -31,3 +31,35 @@ class ToolContext:
         if self.guard is None:
             self.guard = GuardState()
         return self.guard
+
+
+# ---------- 身份辅助（各工具组共用，勿在各工具模块重复定义） ----------
+
+def user_role(ctx: ToolContext) -> str:
+    """当前登录角色（user_id/role/school_id；dict 或对象兼容）。"""
+    user = ctx.user
+    if user is None:
+        return ""
+    if isinstance(user, dict):
+        return str(user.get("role") or "")
+    return str(getattr(user, "role", "") or "")
+
+
+def user_id(ctx: ToolContext) -> int:
+    """当前登录账户 ID（Account.id；JWT payload['user_id']）。"""
+    user = ctx.user
+    if user is None:
+        return 0
+    if isinstance(user, dict):
+        return int(user.get("user_id") or 0)
+    return int(getattr(user, "user_id", 0) or 0)
+
+
+def user_school_id(ctx: ToolContext) -> int | None:
+    """当前登录学校 ID（可能为 None）。"""
+    user = ctx.user
+    if user is None:
+        return None
+    if isinstance(user, dict):
+        return user.get("school_id")
+    return getattr(user, "school_id", None)

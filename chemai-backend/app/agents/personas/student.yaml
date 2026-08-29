@@ -15,4 +15,5 @@ available_skills:
   - stoichiometry_tutor
   - redox_tutor
   - equilibrium_tutor
+  - memory_student_get
 data_access: {}

@@ -59,7 +59,7 @@ KEYWORD_RULES: list[tuple[tuple[str, ...], str, list[str], Optional[str]]] = [
     (("删除", "删掉", "移除题库"), "chat", ["delete_bank"], None),
     (("练习", "布置", "作业", "训练"), "chat", ["assign_adaptive_practice"], None),
     (("学习计划", "学习方案", "计划"), "chat", ["generate_learning_plan", "send_learning_plan"], None),
-    (("是什么", "什么是", "怎么做", "怎么理解", "原理", "为什么", "解释"), "chat", ["web_search"], None),
+    (("是什么", "什么是", "怎么做", "怎么理解", "原理", "为什么", "解释"), "chat", ["chemistry_tutor", "web_search"], None),
     (("介绍", "总结", "讲解", "科普"), "chat", ["web_search"], None),
 ]
 
