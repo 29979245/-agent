@@ -110,6 +110,10 @@
       let curAiText = '';
       let lastText = '';
       let currentChat = null;
+      let aiElRef = null;          // 当前 AI 气泡（富渲染/审批卡片挂载）
+      let toolArgsBuffers = {};    // tool_call_id -> {argsText}（8.1 delta 累积）
+      let pendingApproval = null;  // {tool, args, threadId}（D13 待审批）
+      let lastPhase = '';
 
       SA.renderTabbar('ai-tutor');
 
@@ -183,6 +187,8 @@
         const div = document.createElement('div');
         div.className = 'bubble ai';
         chat.appendChild(div);
+        aiElRef = div;
+        toolArgsBuffers = {};
         scrollChat();
         return div;
       }
@@ -223,13 +229,23 @@
         const key = String(d.tool_call_id || d.id || (d.tool || d.name || ''));
         let target = Array.prototype.find.call(chat.querySelectorAll('.tool-card'), (c) => c.dataset.key === key);
         if (!target) target = buildToolCard(d, '完成');
-        target.classList.add(d.success === false ? 'fail' : 'ok');
+        const fail = d.success === false;
+        target.classList.add(fail ? 'fail' : 'ok');
         const st = target.querySelector('.tool-status');
-        if (st) st.textContent = d.success === false ? '失败' : '完成';
+        if (st) st.textContent = fail ? '失败' : '完成';
+        const name = d.tool || d.name;
+        if (name) {
+          const n = target.querySelector('.tool-name');
+          if (n) n.textContent = '⚙ ' + name;
+        }
         const body = target.querySelector('.tool-body');
         if (d.result && body) {
-          body.innerHTML = SA.renderMarkdown(String(d.result));  // 经 XSS 净化
-          SA.renderChem(body);
+          if (fail && (d.error === 'requires_approval_blocked' || (d.result && d.result.error === 'requires_approval_blocked'))) {
+            body.innerHTML = '<div class="tool-args">该操作需要你确认后才执行</div>';
+          } else {
+            body.innerHTML = renderToolResult(d.result);  // 富渲染（经 escapeHtml 净化）
+            SA.renderChem(body);
+          }
           target.classList.remove('collapsed');  // 结果到达默认展开
           body.style.display = 'block';
           scrollChat();
@@ -252,8 +268,186 @@
           SA.renderChem(aiEl);
         }
         busy = false;
-        $('sendBtn').disabled = false;
+        lockInput(false);
         scrollChat();
+      }
+
+      // ---- 8.1 工具参数骨架：tool_args delta 按 call id 累积（preparing→executing 渐显） ----
+      function accumulateArgs(d) {
+        const id = d.tool_call_id;
+        if (!id) return;
+        const buf = toolArgsBuffers[id] || (toolArgsBuffers[id] = { argsText: '' });
+        buf.argsText += d.delta || '';
+        renderArgsSkeleton(id, buf.argsText);
+      }
+      function renderArgsSkeleton(id, argsText) {
+        const target = Array.prototype.find.call(chat.querySelectorAll('.tool-card'), (c) => c.dataset.key === id);
+        if (!target) return;
+        const body = target.querySelector('.tool-body');
+        if (!body) return;
+        let sk = target.querySelector('.tool-args');
+        if (!sk) {
+          sk = document.createElement('div');
+          sk.className = 'tool-args';
+          body.appendChild(sk);
+        }
+        sk.textContent = argsText;  // textContent 免注入
+      }
+
+      // ---- 8.2 富渲染器：按结果形状分发 ----
+      function pct(v) {
+        const n = Number(v);
+        return isFinite(n) ? Math.round(n * 100) + '%' : '—';
+      }
+      function renderBarrierOverview(r) {
+        const parts = ['<div class="rich rich-barrier">'];
+        if (r.name || r.class_name) parts.push('<div class="rich-title">' + SA.escapeHtml(r.name || r.class_name) + '</div>');
+        const profile = r.profile || {};
+        const dist = r.distribution || {};
+        const dims = [['概念理解', 'concept'], ['阅读理解', 'reading'], ['表达书写', 'expression']];
+        let drew = false;
+        for (const [label, k] of dims) {
+          const v = profile[k];
+          if (v === undefined || v === null) continue;
+          drew = true;
+          parts.push('<div class="bar-row"><span class="bar-label">' + label + '</span>' +
+            '<div class="bar-track"><div class="bar-fill" style="width:' + pct(v) + '"></div></div>' +
+            '<span class="bar-val">' + pct(v) + '</span></div>');
+        }
+        if (!drew && dist.axis !== undefined && dist.axis !== null) {
+          parts.push('<div class="bar-row"><span class="bar-label">平均障碍指数</span>' +
+            '<div class="bar-track"><div class="bar-fill" style="width:' + pct(dist.axis) + '"></div></div>' +
+            '<span class="bar-val">' + pct(dist.axis) + '</span></div>');
+        }
+        if (r.total_students) parts.push('<div class="rich-sub">共 ' + SA.escapeHtml(String(r.total_students)) + ' 人</div>');
+        if (r.dominant_label) parts.push('<div class="rich-flag">主要障碍：' + SA.escapeHtml(r.dominant_label) + '</div>');
+        parts.push('</div>');
+        return parts.join('');
+      }
+      function renderQuestionCards(r) {
+        const qs = r.questions || [];
+        const parts = ['<div class="rich rich-questions">'];
+        if (r.knowledge_points && r.knowledge_points.length) {
+          parts.push('<div class="rich-title">知识点：' + r.knowledge_points.map((p) => SA.escapeHtml(String(p))).join('、') + '</div>');
+        }
+        qs.forEach((q, i) => {
+          const opts = (q.options || []).map((o, j) =>
+            '<div class="q-opt">' + String.fromCharCode(65 + j) + '. ' + SA.escapeHtml(String(o)) + '</div>').join('');
+          parts.push('<div class="q-card">' +
+            '<div class="q-index">第 ' + (i + 1) + ' 题</div>' +
+            '<div class="q-stem">' + SA.escapeHtml(String(q.content || q.stem || '')) + '</div>' +
+            (opts ? '<div class="q-opts">' + opts + '</div>' : '') +
+            '<div class="q-answer">答案：' + SA.escapeHtml(String(q.answer || '')) + '</div>' +
+            (q.analysis ? '<div class="q-analysis">解析：' + SA.escapeHtml(String(q.analysis)) + '</div>' : '') +
+            '</div>');
+        });
+        parts.push('</div>');
+        return parts.join('');
+      }
+      function renderStudentList(r) {
+        const items = r.items || r.students || [];
+        const parts = ['<div class="rich rich-students">'];
+        if (r.class_name) parts.push('<div class="rich-title">' + SA.escapeHtml(r.class_name) + '</div>');
+        if (r.total !== undefined) parts.push('<div class="rich-sub">共 ' + SA.escapeHtml(String(r.total)) + ' 人</div>');
+        items.forEach((s) => {
+          parts.push('<div class="s-card">' +
+            '<div class="s-name">' + SA.escapeHtml(String(s.name || '学生')) + '</div>' +
+            '<div class="s-tag">' + SA.escapeHtml(String(s.dominant_label || s.dominant_barrier || '')) + '</div>' +
+            '</div>');
+        });
+        parts.push('</div>');
+        return parts.join('');
+      }
+      function renderGenericResult(r) {
+        if (r === null || r === undefined) return '';
+        if (typeof r === 'string') return SA.renderMarkdown(r);
+        if (typeof r !== 'object') return SA.escapeHtml(String(r));
+        const textKeys = ['summary', 'message', 'text', 'description'];
+        for (const k of textKeys) {
+          if (typeof r[k] === 'string' && r[k]) {
+            const extra = Object.keys(r).filter((x) => !textKeys.includes(x)).map((x) =>
+              '<div class="kv"><span>' + SA.escapeHtml(x) + '</span><b>' + SA.escapeHtml(String(r[x])) + '</b></div>').join('');
+            return SA.renderMarkdown(r[k]) + (extra ? '<div class="rich kv-list">' + extra + '</div>' : '');
+          }
+        }
+        return '<pre class="rich-json">' + SA.escapeHtml(JSON.stringify(r, null, 2)) + '</pre>';
+      }
+      function renderToolResult(r) {
+        if (r === null || r === undefined) return '';
+        if (Array.isArray(r.questions) && r.questions.length) return renderQuestionCards(r);
+        if (r.distribution || r.profile || r.dominant_label) return renderBarrierOverview(r);
+        if (Array.isArray(r.items) && r.items.length) return renderStudentList(r);
+        return renderGenericResult(r);
+      }
+
+      // ---- 6.2 审批卡片（D13）：awaiting_approval → 确认/取消 → 恢复端点重开流 ----
+      function lockInput(locked) {
+        $('sendBtn').disabled = locked;
+        input.disabled = locked;
+      }
+      function stashApproval(d) {
+        const r = d.result || {};
+        if (d.error === 'requires_approval_blocked' || r.error === 'requires_approval_blocked') {
+          pendingApproval = {
+            tool: r.tool || d.tool || '工具',
+            args: r.args || {},
+            threadId: threadId,
+          };
+        }
+      }
+      function removeApprovalCard() {
+        Array.prototype.forEach.call(chat.querySelectorAll('.approval-card'), (c) => c.remove());
+      }
+      function showApprovalCard() {
+        const p = pendingApproval;
+        removeApprovalCard();
+        if (!p) { lockInput(false); return; }
+        const div = document.createElement('div');
+        div.className = 'approval-card';
+        const argsHtml = Object.keys(p.args || {}).map((k) =>
+          '<div class="kv"><span>' + SA.escapeHtml(k) + '</span><b>' + SA.escapeHtml(String(p.args[k])) + '</b></div>').join('');
+        div.innerHTML =
+          '<div class="approval-title">⚠ 需要你确认</div>' +
+          '<div class="approval-tool">工具：' + SA.escapeHtml(p.tool) + '</div>' +
+          (argsHtml ? '<div class="kv-list">' + argsHtml + '</div>' : '') +
+          '<div class="approval-actions">' +
+          '<button class="btn-approve">确认执行</button>' +
+          '<button class="btn-reject">取消</button>' +
+          '</div>';
+        chat.appendChild(div);
+        lockInput(true);
+        div.querySelector('.btn-approve').addEventListener('click', () => resumeApproval('approve', div));
+        div.querySelector('.btn-reject').addEventListener('click', () => resumeApproval('reject', div));
+        scrollChat();
+      }
+      function resumeApproval(decision, card) {
+        const p = pendingApproval;
+        pendingApproval = null;
+        if (!p) { removeApprovalCard(); lockInput(false); return; }
+        if (card) {
+          if (decision === 'approve') {
+            card.classList.add('approved');
+            card.innerHTML = '<div class="approval-title">✓ 已确认，正在执行…</div>';
+          } else {
+            card.remove();
+          }
+        }
+        currentChat = A.agentApprovalResume(
+          { thread_id: p.threadId, decision: decision, tool: p.tool, args: p.args },
+          makeHandlers(aiElRef)
+        );
+      }
+      function makeHandlers(aiEl) {
+        return {
+          onPhase: (p) => { lastPhase = p; setStage(p); },
+          onText: (t) => { curAiText += t; renderAi(aiEl); },
+          onToolCall: (d) => addToolCard(d),
+          onToolArgs: (d) => accumulateArgs(d),
+          onToolResult: (d) => { stashApproval(d); updateToolCard(d); },
+          onDone: () => endReply(aiEl),
+          onPause: () => showApprovalCard(),  // 11.4：最后 phase=awaiting_approval 且无 done → 暂停（非断连）
+          onError: (e) => endReply(aiEl, e),
+        };
       }
 
       function send(text) {
@@ -261,22 +455,17 @@
         if (!text || busy) return;
         busy = true;
         lastText = text;
-        $('sendBtn').disabled = true;
+        lockInput(true);
         input.value = '';
         appendUser(text);
         curAiText = '';
+        lastPhase = '';
+        pendingApproval = null;
         setStage('thinking');
         const aiEl = newAiBubble();
         currentChat = A.agentChatStream(
           { message: text, thread_id: threadId, context: { user_id: (me && me.user_id) || null, role: 'student', persona: 'student' } },
-          {
-            onPhase: (p) => setStage(p),
-            onText: (t) => { curAiText += t; renderAi(aiEl); },
-            onToolCall: (d) => addToolCard(d),
-            onToolResult: (d) => updateToolCard(d),
-            onDone: () => endReply(aiEl),
-            onError: (e) => endReply(aiEl, e),
-          }
+          makeHandlers(aiEl)
         );
       }
 
@@ -285,7 +474,11 @@
         busy = false;
         curAiText = '';
         lastText = '';
-        $('sendBtn').disabled = false;
+        lastPhase = '';
+        pendingApproval = null;
+        aiElRef = null;
+        toolArgsBuffers = {};
+        lockInput(false);
         threadId = 'conv_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
         chat.innerHTML = '';
         addWelcome();

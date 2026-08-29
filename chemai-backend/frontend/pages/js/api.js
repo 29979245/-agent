@@ -465,24 +465,63 @@
     // ---- AI 助教对话（/api/agent/chat/langgraph/stream，SSE 流式）----
     // 返回 { cancel, done }：cancel() 中止连接；done 为 Promise，正常结束不 reject。
     // onError(data)：data.degradable=true 表示端点未实现可降级；kind ∈ not_implemented/network/stream/http/canceled。
-    agentChatStream(payload, handlers = {}) {
-      const { onPhase, onText, onToolCall, onToolResult, onDone, onError } = handlers;
-      const controller = new AbortController();
-      const cancel = () => controller.abort();
+    // onPause：流在 awaiting_approval 后干净关闭（无 done 无 error）→ 审批暂停，区别于断连（D13/11.4）。
+    // onToolArgs(d)：流式 Provider 的 tool_args delta，按 tool_call_id 累积（8.1）。
+    _consumeAgentSse(resp, controller, handlers) {
+      const { onPhase, onText, onToolCall, onToolArgs, onToolResult, onDone, onPause, onError } = handlers;
+      let doneReceived = false;
+      let errored = false;  // SSE error 事件已回传，避免循环后重复触发"连接中断"
+      let paused = false;   // 最后 phase=awaiting_approval → 审批暂停
+      return parseSSE(resp.body, {
+        onEvent: (eventName, dataText) => {
+          let dataObj = {};
+          try { dataObj = JSON.parse(dataText); } catch (err) { dataObj = { content: dataText }; }
+          const name = eventName || dataObj.type || '';
+          if (name === 'text' || name === 'token') {
+            if (onText) onText(dataObj.content || '');
+          } else if (name === 'phase' || name === 'thinking') {
+            if (onPhase) onPhase(dataObj.content || dataObj.phase || dataObj.state || name);
+          } else if (name === 'tool_call') {
+            if (onToolCall) onToolCall(dataObj);
+          } else if (name === 'tool_args') {
+            if (onToolArgs) onToolArgs(dataObj);
+          } else if (name === 'tool_result') {
+            if (onToolResult) onToolResult(dataObj);
+          } else if (name === 'done') {
+            doneReceived = true;
+            if (onDone) onDone(dataObj);
+          } else if (name === 'error') {
+            errored = true;
+            if (onError) onError({ degradable: false, kind: 'stream_error', message: dataObj.message || '对话出错' });
+          } else if (name === 'planning' || name === 'executing' || name === 'reply' || name === 'awaiting_approval') {
+            if (name === 'awaiting_approval') paused = true;
+            if (onPhase) onPhase(name);
+          }
+        },
+      }).then(() => {
+        // 流干净结束但未收到 done 且未报错：审批暂停 → onPause；否则视为连接中断（design D3）
+        if (!doneReceived && !errored && !controller.signal.aborted) {
+          if (paused) { if (onPause) onPause({}); }
+          else if (onError) onError({ degradable: false, kind: 'stream', message: '连接中断' });
+        }
+      });
+    },
 
-      const promise = (async () => {
-        const opts = {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
-          signal: controller.signal,
-        };
-        const token = getToken();
-        if (token) opts.headers.Authorization = 'Bearer ' + token;
-        opts.body = JSON.stringify(payload);
+    _postAgentSse(url, payload, controller, handlers) {
+      const { onError } = handlers;
+      const opts = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+        signal: controller.signal,
+      };
+      const token = getToken();
+      if (token) opts.headers.Authorization = 'Bearer ' + token;
+      opts.body = JSON.stringify(payload);
 
+      return (async () => {
         let resp;
         try {
-          resp = await fetch(baseURL + '/api/agent/chat/langgraph/stream', opts);
+          resp = await fetch(baseURL + url, opts);
         } catch (err) {
           if (onError) {
             onError(controller.signal.aborted
@@ -513,37 +552,8 @@
           return { canceled: false };
         }
 
-        let doneReceived = false;
-        let errored = false;  // SSE error 事件已回传，避免循环后重复触发"连接中断"
         try {
-          await parseSSE(resp.body, {
-            onEvent: (eventName, dataText) => {
-              let dataObj = {};
-              try { dataObj = JSON.parse(dataText); } catch (err) { dataObj = { content: dataText }; }
-              const name = eventName || dataObj.type || '';
-              if (name === 'text' || name === 'token') {
-                if (onText) onText(dataObj.content || '');
-              } else if (name === 'phase' || name === 'thinking') {
-                if (onPhase) onPhase(dataObj.content || dataObj.phase || dataObj.state || name);
-              } else if (name === 'tool_call') {
-                if (onToolCall) onToolCall(dataObj);
-              } else if (name === 'tool_result') {
-                if (onToolResult) onToolResult(dataObj);
-              } else if (name === 'done') {
-                doneReceived = true;
-                if (onDone) onDone(dataObj);
-              } else if (name === 'error') {
-                errored = true;
-                if (onError) onError({ degradable: false, kind: 'stream_error', message: dataObj.message || '对话出错' });
-              } else if (name === 'planning' || name === 'executing' || name === 'reply' || name === 'awaiting_approval') {
-                if (onPhase) onPhase(name);
-              }
-            },
-          });
-          // 流干净结束但未收到 done 且未报错：视为连接中断（design D3），否则加载态悬挂
-          if (!doneReceived && !errored && !controller.signal.aborted && onError) {
-            onError({ degradable: false, kind: 'stream', message: '连接中断' });
-          }
+          await this._consumeAgentSse(resp, controller, handlers);
         } catch (err) {
           if (!controller.signal.aborted && onError) {
             onError({ degradable: false, kind: 'stream', message: err.message || '连接中断' });
@@ -551,7 +561,20 @@
         }
         return { canceled: controller.signal.aborted };
       })();
+    },
 
+    agentChatStream(payload, handlers = {}) {
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+      const promise = this._postAgentSse('/api/agent/chat/langgraph/stream', payload, controller, handlers);
+      return { cancel, done: promise };
+    },
+
+    // 审批恢复（D13）：确认/取消后从检查点恢复，重开新 SSE 流续推
+    agentApprovalResume(payload, handlers = {}) {
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+      const promise = this._postAgentSse('/api/agent/approval/resume', payload, controller, handlers);
       return { cancel, done: promise };
     },
   };
