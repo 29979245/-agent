@@ -23,5 +23,5 @@
 
 ## 5. 收尾验证
 
-- [ ] 5.1 全量跑 Agent 相关单测与 Evals：`pytest tests/unit -k agent` + `python -m app.evals.runners.run_evals --tier all --compare app/evals/baseline.json`，确认无回归、无能力劣化（threshold 0.05）
-- [ ] 5.2 按 CLAUDE.md 原子提交规范分 commit 提交（D3/D1/D2/D4 各自独立），`graphify update .` 保持知识图同步
+- [x] 5.1 全量跑 Agent 相关单测与 Evals：`pytest tests/unit -k agent` + `python -m app.evals.runners.run_evals --tier all --compare app/evals/baseline.json`，确认无回归、无能力劣化（threshold 0.05）
+- [x] 5.2 按 CLAUDE.md 原子提交规范分 commit 提交（D3/D1/D2/D4 各自独立），`graphify update .` 保持知识图同步
