@@ -307,3 +307,26 @@ def test_adaptive_confirm_invalid_ref_400_no_write(exercise_client, tmp_path):
         assert db.query(ExamRecord).filter(ExamRecord.student_id.isnot(None)).count() == 0
     finally:
         restore()
+
+
+def test_adaptive_confirm_empty_refs_400_no_write(exercise_client, tmp_path):
+    """空 question_refs（preview 缺题短fall）→ 400 ADAPTIVE_CONFIRM_INVALID，整批不落库。
+
+    修复 code-review 指出的 422 偏差：空 refs 应走 400/409 家族而非 pydantic 校验错误。
+    """
+    client, db = exercise_client
+    restore = _with_bank(tmp_path, "")
+    try:
+        cls, students, acc = _class_with_students(db, ["学生甲"])
+        resp = client.post(
+            "/api/practice/adaptive/confirm",
+            json={"class_id": cls.id, "items": [
+                {"student_id": students[0].id, "question_refs": []},
+            ]},
+            headers=_teacher_headers(acc),
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error_code"] == "ADAPTIVE_CONFIRM_INVALID"
+        assert db.query(ExamRecord).filter(ExamRecord.student_id.isnot(None)).count() == 0
+    finally:
+        restore()

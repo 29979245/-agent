@@ -160,7 +160,8 @@ def generate_practice(request: Request, db: Session = Depends(get_db)) -> dict:
 
 class AdaptiveConfirmItem(BaseModel):
     student_id: int
-    question_refs: list[str] = Field(..., min_length=1)
+    # 缺题（preview shortfall）时 refs 为空；不设 min_length，空 refs 在端点返回 400 而非 422
+    question_refs: list[str]
 
 
 class AdaptiveConfirmRequest(BaseModel):
@@ -198,6 +199,12 @@ def confirm_adaptive_practice(
             raise ForbiddenError(
                 detail=f"学生 {sid} 不属于班级 {payload.class_id}",
                 error_code="STUDENT_NOT_IN_CLASS",
+            )
+    for item in payload.items:
+        if not item.question_refs:
+            raise BusinessRuleViolationError(
+                detail=f"学生 {item.student_id} 无匹配题目，无法下发",
+                error_code="ADAPTIVE_CONFIRM_INVALID",
             )
     try:
         # persist_batch 全量校验先行、零写入后落库（ValueError 前无任何 db.add）

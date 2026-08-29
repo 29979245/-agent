@@ -366,21 +366,29 @@
           parts.push('<div class="rich-sub">该班级暂无学生，无法预览</div></div>');
           return parts.join('');
         }
+        const confirmable = [];
         items.forEach((it) => {
           const kps = (it.knowledge_points || []).map((k) => SA.escapeHtml(String(k))).join('、');
+          const hasRefs = Array.isArray(it.question_refs) && it.question_refs.length > 0;
           parts.push('<div class="q-card">' +
             '<div class="rich-title">' + SA.escapeHtml(String(it.student_name || ('学生 #' + it.student_id))) + '</div>' +
             '<div class="rich-sub">难度 ' + SA.escapeHtml(String(it.difficulty || '')) +
             ' · ' + it.question_count + ' 题</div>' +
             (kps ? '<div class="rich-sub">知识点：' + kps + '</div>' : '') +
+            (hasRefs ? '' : '<div class="rich-sub">暂无匹配题目，无法下发</div>') +
             '</div>');
+          if (hasRefs) confirmable.push({ student_id: it.student_id, question_refs: it.question_refs });
         });
         if (r.remaining > 0) parts.push('<div class="rich-sub">另有 ' + r.remaining + ' 名学生未预览（每批上限 5 人）</div>');
-        const payload = encodeURIComponent(JSON.stringify({
-          class_id: r.class_id,
-          items: items.map((it) => ({ student_id: it.student_id, question_refs: it.question_refs || [] })),
-        }));
-        parts.push('<button class="btn btn-teal btn-confirm-adaptive" data-payload="' + payload + '">确认下发</button>');
+        if (confirmable.length) {
+          const payload = encodeURIComponent(JSON.stringify({
+            class_id: r.class_id,
+            items: confirmable,
+          }));
+          parts.push('<button class="btn btn-teal btn-confirm-adaptive" data-payload="' + payload + '">确认下发</button>');
+        } else {
+          parts.push('<div class="rich-sub">暂无匹配题目，请调整筛选或稍后再试</div>');
+        }
         parts.push('</div>');
         return parts.join('');
       }
