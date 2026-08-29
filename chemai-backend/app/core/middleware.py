@@ -16,7 +16,6 @@ guard_logger = logging.getLogger("chemai.guard")
 WHITELIST_PREFIXES = (
     "/api/auth/",
     "/api/parent/",
-    "/api/agent/",
     "/api/ocr/",
     "/api/classes/",
     "/api/knowledge/",

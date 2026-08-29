@@ -45,14 +45,37 @@ class Settings:
         "on",
     )
 
-    # LLM Provider（.env 中覆盖）
+    # LLM Provider（.env 中覆盖；agent 阶段 LLM_PROVIDER 应设为 mimo，见 design D2/ADR-0008）
     llm_provider: str = os.environ.get("LLM_PROVIDER", "deepseek")  # deepseek / qwen / mimo
     llm_api_key: str = os.environ.get("LLM_API_KEY", "")
+
+    # 三级 Fallback 各 Provider 独立密钥（ADR-0008：MiMo-V2.5 主 → qwen-turbo → DeepSeek）
+    mimo_api_key: str = os.environ.get("MIMO_API_KEY", "")
+    qwen_api_key: str = os.environ.get("QWEN_API_KEY", "")
+    deepseek_api_key: str = os.environ.get("DEEPSEEK_API_KEY", "") or llm_api_key
+
+    # 各 Provider 兼容接口 base_url（qwen 走 DashScope 兼容模式；MiMo 按部署配置 MIMO_BASE_URL）
+    mimo_base_url: str = os.environ.get("MIMO_BASE_URL", "")
+    qwen_base_url: str = os.environ.get(
+        "QWEN_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    )
+    deepseek_base_url: str = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+
+    # Agent 审计日志目录（doc 30 §10）：JSONL 追加写入 + 内存环形缓冲
+    agent_audit_dir: str = str(BASE_DIR / "data" / "audit")
+
+    # web_search 独立搜索 API（design D15：与 LLM Provider 解耦）
+    search_api_base: str = os.environ.get("SEARCH_API_BASE", "")
+    search_api_key: str = os.environ.get("SEARCH_API_KEY", "")
 
     # OCR Provider
     ocr_provider: str = os.environ.get("OCR_PROVIDER", "baidu")  # baidu / mineru
     baidu_ocr_api_key: str = os.environ.get("BAIDU_OCR_API_KEY", "")
     baidu_ocr_secret_key: str = os.environ.get("BAIDU_OCR_SECRET_KEY", "")
+
+    # Agent 限流（design D6）：Token Bucket，按用户；参数从简可后调
+    agent_rate_per_minute: int = int(os.environ.get("AGENT_RATE_PER_MINUTE", "12"))
+    agent_rate_burst: int = int(os.environ.get("AGENT_RATE_BURST", "20"))
 
 
 settings = Settings()

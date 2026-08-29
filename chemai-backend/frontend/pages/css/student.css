@@ -796,3 +796,54 @@ a.menu-row { text-decoration: none; }
   color: var(--ink); line-height: 1.5; word-break: break-word;
 }
 .tool-card.collapsed .tool-body { display: none; }
+
+/* ---- 工具参数骨架（8.1） ---- */
+.tool-args {
+  margin-top: 4px; padding: 4px 6px; background: #f7f9fb; border-radius: 6px;
+  font-family: monospace; font-size: 11px; color: var(--muted); white-space: pre-wrap; word-break: break-all;
+}
+
+/* ---- 富渲染器（8.2） ---- */
+.rich { font-size: 13px; color: var(--ink); line-height: 1.6; }
+.rich-title { font-weight: 700; color: var(--oxford); margin-bottom: 6px; }
+.rich-sub { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.rich-flag { margin-top: 6px; color: var(--oxford); font-weight: 600; }
+.bar-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+.bar-label { width: 64px; font-size: 12px; color: var(--muted); flex-shrink: 0; }
+.bar-track { flex: 1; height: 8px; background: #eef1f4; border-radius: 4px; overflow: hidden; }
+.bar-fill { height: 100%; background: linear-gradient(90deg, #4a6fa5, #6a8ec9); border-radius: 4px; }
+.bar-val { width: 40px; text-align: right; font-size: 12px; color: var(--oxford); }
+.q-card { border: 1px solid #eef1f4; border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.q-index { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.q-stem { font-weight: 600; color: var(--oxford); margin-bottom: 4px; }
+.q-opts { margin: 4px 0; }
+.q-opt { font-size: 12px; margin: 2px 0; }
+.q-answer { font-size: 12px; color: var(--green); margin-top: 4px; }
+.q-analysis { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.rich-students { display: flex; flex-wrap: wrap; gap: 6px; }
+.s-card { display: flex; align-items: center; gap: 6px; border: 1px solid #eef1f4; border-radius: 8px; padding: 6px 10px; background: #fafbfc; }
+.s-name { font-weight: 600; color: var(--oxford); }
+.s-tag { font-size: 11px; color: var(--muted); }
+.rich-json { font-family: monospace; font-size: 11px; color: var(--muted); background: #f7f9fb; border-radius: 6px; padding: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+.kv-list { margin-top: 6px; }
+.kv { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; border-bottom: 1px dashed #f0f2f4; padding: 2px 0; }
+.kv span { color: var(--muted); }
+.kv b { color: var(--oxford); font-weight: 600; }
+
+/* ---- 审批卡片（6.2 / D13） ---- */
+.approval-card {
+  align-self: flex-start; max-width: 80%;
+  border: 1px solid #f0c36d; background: #fffaf0; border-radius: 8px; padding: 10px 12px;
+  font-size: 13px; color: var(--ink);
+}
+.approval-title { font-weight: 700; color: #b8860b; margin-bottom: 4px; }
+.approval-tool { color: var(--oxford); font-weight: 600; margin-bottom: 4px; }
+.approval-actions { display: flex; gap: 8px; margin-top: 8px; }
+.btn-approve {
+  background: var(--oxford); color: #fff; border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px;
+}
+.btn-reject {
+  background: #fff; color: var(--muted); border: 1px solid #ddd; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px;
+}
+.approval-card.approved { border-color: var(--green); background: #f3faf3; }
+.approval-card.approved .approval-title { color: var(--green); }

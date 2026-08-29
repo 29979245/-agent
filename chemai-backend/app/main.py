@@ -14,12 +14,14 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings  # 必须在各 router 之前导入：config 加载 .env 的 JWT_SECRET，security.py 导入期即读取
+from app.api.v1.agent import agent_router
 from app.api.v1.audit import audit_router
 from app.api.v1.auth import auth_router, parent_router
 from app.api.v1.diagnosis import diagnosis_router
 from app.api.v1.exam import classes_router, exam_router
 from app.api.v1.exam_bank import exam_bank_router
 from app.api.v1.integration import integration_router
+from app.api.v1.mcp import mcp_router
 from app.api.v1.ocr import grading_router, ocr_router
 from app.api.v1.panel import panel_router
 from app.api.v1.parent import parent_router as parent_portal_router
@@ -135,6 +137,8 @@ app.add_middleware(
 )
 
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+app.include_router(agent_router, prefix="/api/agent", tags=["agent"])
+app.include_router(mcp_router, prefix="/api/mcp", tags=["mcp"])
 app.include_router(parent_router, prefix="/api/parent", tags=["parent"])
 app.include_router(parent_portal_router, prefix="/api/parent", tags=["parent"])
 app.include_router(audit_router, prefix="/api/question", tags=["question"])
