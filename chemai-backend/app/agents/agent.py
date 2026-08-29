@@ -138,6 +138,7 @@ async def run_agent_chat(
     - checkpointer_factory：返回 AsyncSqliteSaver 上下文管理器（测试注入 tmp 路径）。
     """
     from app.agents.factories.model_factory import FallbackChatModel, LLMClient
+    from app.agents.tools.search_client import get_search_client
 
     llm = llm_client or LLMClient()
     model = FallbackChatModel(llm=llm)
@@ -160,6 +161,7 @@ async def run_agent_chat(
         guard=guard,
         memory=mem,
         llm=llm,
+        search=get_search_client(),
         emit=lambda name, payload: emit_queue.put_nowait((name, payload)),
         persona=persona,
     )

@@ -358,6 +358,79 @@
         parts.push('</div>');
         return parts.join('');
       }
+      function renderAdaptivePreview(r) {
+        const items = r.results || [];
+        const parts = ['<div class="rich rich-adaptive">'];
+        if (r.class_name) parts.push('<div class="rich-title">' + SA.escapeHtml(r.class_name) + ' 自适应练习预览</div>');
+        if (!items.length) {
+          parts.push('<div class="rich-sub">该班级暂无学生，无法预览</div></div>');
+          return parts.join('');
+        }
+        const confirmable = [];
+        items.forEach((it) => {
+          const kps = (it.knowledge_points || []).map((k) => SA.escapeHtml(String(k))).join('、');
+          const hasRefs = Array.isArray(it.question_refs) && it.question_refs.length > 0;
+          parts.push('<div class="q-card">' +
+            '<div class="rich-title">' + SA.escapeHtml(String(it.student_name || ('学生 #' + it.student_id))) + '</div>' +
+            '<div class="rich-sub">难度 ' + SA.escapeHtml(String(it.difficulty || '')) +
+            ' · ' + it.question_count + ' 题</div>' +
+            (kps ? '<div class="rich-sub">知识点：' + kps + '</div>' : '') +
+            (hasRefs ? '' : '<div class="rich-sub">暂无匹配题目，无法下发</div>') +
+            '</div>');
+          if (hasRefs) confirmable.push({ student_id: it.student_id, question_refs: it.question_refs });
+        });
+        if (r.remaining > 0) parts.push('<div class="rich-sub">另有 ' + r.remaining + ' 名学生未预览（每批上限 5 人）</div>');
+        if (confirmable.length) {
+          const payload = encodeURIComponent(JSON.stringify({
+            class_id: r.class_id,
+            items: confirmable,
+          }));
+          parts.push('<button class="btn btn-teal btn-confirm-adaptive" data-payload="' + payload + '">确认下发</button>');
+        } else {
+          parts.push('<div class="rich-sub">暂无匹配题目，请调整筛选或稍后再试</div>');
+        }
+        parts.push('</div>');
+        return parts.join('');
+      }
+      function confirmAdaptive(btn) {
+        let payload;
+        try {
+          payload = JSON.parse(decodeURIComponent(btn.dataset.payload || '{}'));
+        } catch (_err) {
+          SA.toast('预览数据异常，请重新生成预览'); return;
+        }
+        if (!payload.class_id || !(payload.items || []).length) {
+          SA.toast('无有效的预览数据'); return;
+        }
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '下发中…';
+        fetch('/api/practice/adaptive/confirm', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + (window.ChemAuth.getToken ? window.ChemAuth.getToken() : ''),
+          },
+          body: JSON.stringify(payload),
+        })
+          .then(async (resp) => {
+            const body = await resp.json().catch(() => ({}));
+            if (!resp.ok) {
+              SA.toast('下发失败：' + ((body && body.detail) || resp.status));
+              btn.disabled = false;
+              btn.textContent = original;
+              return;
+            }
+            const n = (body.results || []).length;
+            btn.textContent = '✓ 已下发 ' + n + ' 人';
+            btn.classList.add('active');
+          })
+          .catch(() => {
+            SA.toast('网络异常，下发失败');
+            btn.disabled = false;
+            btn.textContent = original;
+          });
+      }
       function renderGenericResult(r) {
         if (r === null || r === undefined) return '';
         if (typeof r === 'string') return SA.renderMarkdown(r);
@@ -375,6 +448,7 @@
       function renderToolResult(r) {
         if (r === null || r === undefined) return '';
         if (Array.isArray(r.questions) && r.questions.length) return renderQuestionCards(r);
+        if (Array.isArray(r.results) && (r.class_id !== undefined || (r.results[0] && Array.isArray(r.results[0].question_refs)))) return renderAdaptivePreview(r);
         if (r.distribution || r.profile || r.dominant_label) return renderBarrierOverview(r);
         if (Array.isArray(r.items) && r.items.length) return renderStudentList(r);
         return renderGenericResult(r);
@@ -486,6 +560,12 @@
 
       $('sendBtn').addEventListener('click', () => send(input.value));
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(input.value); });
+
+      // D4：自适应练习预览「确认下发」——事件委托（innerHTML 渲染无法直绑）
+      chat.addEventListener('click', (e) => {
+        const btn = e.target.closest('.btn-confirm-adaptive');
+        if (btn) confirmAdaptive(btn);
+      });
 
       // 初始化：姓名来自会话，班级来自报告（会话无 class_name）
       $('drawerName').textContent = (me && me.name) || '同学';

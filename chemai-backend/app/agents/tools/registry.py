@@ -57,7 +57,11 @@ register_impl("send_learning_plan", tools_diagnosis.SendLearningPlanArgs, tools_
 # ---------------------------------------------------------------- 执行包装
 
 def _emit_directives(ctx: ToolContext, directives: dict, clean: dict) -> None:
-    """把剥离的 _component/_route 指令推送为 SSE component/navigate 事件（doc 41 §3.5/3.6）。"""
+    """把剥离的 _component/_route 指令推送为 SSE component/navigate 事件（doc 41 §3.5/3.6）。
+
+    _route 支持三段式协议 {navigate, populate, actions}（doc 25 §5.4）与旧 {page, params} 形式，
+    分别发 navigate / populate / action 事件。
+    """
     if ctx is None or ctx.emit is None or not directives:
         return
     if "component" in directives:
@@ -66,8 +70,18 @@ def _emit_directives(ctx: ToolContext, directives: dict, clean: dict) -> None:
         route = directives["route"]
         if isinstance(route, str):
             ctx.emit("navigate", {"page": route, "params": {}})
-        else:
-            ctx.emit("navigate", {"page": route.get("page"), "params": route.get("params", {})})
+        elif isinstance(route, dict):
+            nav = route.get("navigate")
+            if isinstance(nav, dict):
+                ctx.emit("navigate", {"page": nav.get("page"), "params": nav.get("params", {})})
+            elif nav is not None:
+                ctx.emit("navigate", {"page": nav, "params": route.get("params", {})})
+            elif "page" in route:
+                ctx.emit("navigate", {"page": route.get("page"), "params": route.get("params", {})})
+            if "populate" in route:
+                ctx.emit("populate", route["populate"])
+            for action in route.get("actions") or []:
+                ctx.emit("action", action)
 
 
 async def execute_tool(ctx: ToolContext, name: str, kwargs: dict) -> dict:

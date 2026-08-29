@@ -167,13 +167,13 @@ def test_text_stream_with_tool_args_mixed():
 def test_approval_pause_stops_stream_without_done():
     blocked = {
         "error": "requires_approval_blocked",
-        "tool": "assign_adaptive_practice",
-        "args": {"class_id": 5},
+        "tool": "delete_bank",
+        "args": {"bank_name": "高一氧化还原"},
     }
     events = [
-        {"event": "on_chat_model_end", "data": {"output": _ai_tool_calls("c1", "assign_adaptive_practice", {"class_id": 5})}},
-        {"event": "on_tool_start", "name": "assign_adaptive_practice"},
-        {"event": "on_tool_end", "name": "assign_adaptive_practice", "data": {"output": _tool_result_msg("c1", content='{"error": "requires_approval_blocked", "tool": "assign_adaptive_practice", "args": {"class_id": 5}}')}},
+        {"event": "on_chat_model_end", "data": {"output": _ai_tool_calls("c1", "delete_bank", {"bank_name": "高一氧化还原"})}},
+        {"event": "on_tool_start", "name": "delete_bank"},
+        {"event": "on_tool_end", "name": "delete_bank", "data": {"output": _tool_result_msg("c1", content='{"error": "requires_approval_blocked", "tool": "delete_bank", "args": {"bank_name": "高一氧化还原"}}')}},
     ]
     pending = []
     frames = asyncio.run(_collect(
@@ -191,7 +191,7 @@ def test_approval_pause_stops_stream_without_done():
     assert frames[3][1]["success"] is False
     assert frames[3][1]["error"] == "requires_approval_blocked"
     # 回调记录待审批
-    assert pending == [("assign_adaptive_practice", {"class_id": 5})]
+    assert pending == [("delete_bank", {"bank_name": "高一氧化还原"})]
 
 
 # ---------- 工具失败 / 递归耗尽 ----------

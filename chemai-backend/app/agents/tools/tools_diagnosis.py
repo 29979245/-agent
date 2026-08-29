@@ -198,6 +198,10 @@ async def diagnose_barrier(
     if ctx.db is None:
         return {"error": "db_unavailable", "message": "数据库未注入", "_guard_error": True}
 
+    # 家长隐私（doc 30 §4.2）：家长仅支持个体诊断，携带班级参数即越权意图（含 student+class 双参数）
+    if _user_role(ctx) == "parent" and (class_id is not None or class_name):
+        raise ForbiddenError(detail="家长仅支持个体诊断")
+
     student, cands = _resolve_student(ctx, student_id, student_name)
     if cands:
         return {"candidates": cands, "message": "匹配到多位学生，请指定具体学生", "total_candidates": len(cands)}
@@ -336,7 +340,11 @@ async def assign_adaptive_practice(
     count: int = 3,
     knowledge_points: Optional[str] = None,
 ) -> dict:
-    """为班级学生生成个性化 ZPD 练习并布置。破坏性操作，需审批确认（doc 30 §3.3）。"""
+    """为班级学生生成个性化 ZPD 练习预览（doc 28 §六，preview-only 不落库）。
+
+    预览无副作用，不创建练习记录、不复制题目入库；教师确认后由前端调用
+    POST /api/practice/adaptive/confirm 持久化（design D1/D2）。
+    """
     if ctx.db is None:
         return {"error": "db_unavailable", "message": "数据库未注入", "_guard_error": True}
     cls, cands = _resolve_class(ctx, class_id, class_name)
@@ -347,7 +355,7 @@ async def assign_adaptive_practice(
     student_ids = [s.id for s in ctx.db.query(Student).filter(Student.class_id == cls.id).all()]
     if not student_ids:
         return {"class_id": cls.id, "class_name": cls.name, "results": [], "batch_limit": 5, "remaining": 0}
-    data = AdaptivePracticeService(ctx.db).generate_batch(student_ids, count=count)
+    data = AdaptivePracticeService(ctx.db).preview_batch(student_ids, count=count)
     return {
         "class_id": cls.id,
         "class_name": cls.name,

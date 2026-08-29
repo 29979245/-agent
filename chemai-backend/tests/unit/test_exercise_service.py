@@ -211,7 +211,7 @@ def test_generate_batch_limit_5(db_session, env, tmp_path):
     p.mkdir(parents=True, exist_ok=True)
     (p / "真题.json").write_text(
         '{"questions": [{"id": "q1", "content": "真题A", "answer": "B", '
-        '"knowledge_points": ["氧化还原反应"], "difficulty": "easy"}]}',
+        '"knowledge_points": ["氧化还原反应"], "difficulty": "easy", "options": ["A", "B", "C", "D"]}]}',
         encoding="utf-8",
     )
     bank = reload_bank(tmp_path)
@@ -223,6 +223,109 @@ def test_generate_batch_limit_5(db_session, env, tmp_path):
     assert result["batch_limit"] == 5
     created = db_session.query(ExamRecord).filter(ExamRecord.student_id.isnot(None)).count()
     assert created == 5  # 每位学生一份独立练习记录
+
+
+# ---- 2.6 预览（preview-only，不落库，doc 28 §六） ----
+
+def test_preview_batch_no_write(db_session, env, tmp_path):
+    from app.services.question.historical import reload_bank
+    p = tmp_path / "全国卷" / "2024"
+    p.mkdir(parents=True, exist_ok=True)
+    (p / "真题.json").write_text(
+        '{"questions": [{"id": "q1", "content": "真题A", "answer": "B", '
+        '"knowledge_points": ["氧化还原反应"], "difficulty": "easy", "options": ["A", "B", "C", "D"]}]}',
+        encoding="utf-8",
+    )
+    bank = reload_bank(tmp_path)
+    students = [_student(db_session, env, name=f"学生{i}", profile={"concept": 1.0}) for i in range(6)]
+    svc = AdaptivePracticeService(db_session, bank=bank)
+    exam_before = db_session.query(ExamRecord).count()
+    q_before = db_session.query(Question).count()
+    result = svc.preview_batch([s.id for s in students], count=3)
+    assert result["remaining"] == 1  # 6 人超 1 人
+    assert len(result["results"]) == 5
+    assert result["batch_limit"] == 5
+    item = result["results"][0]
+    assert set(item) >= {"student_id", "zpd_difficulty", "difficulty", "barrier",
+                         "knowledge_points", "weak_kps", "question_count", "shortfall", "question_refs"}
+    assert item["question_refs"]  # 命中题目引用
+    assert db_session.query(ExamRecord).count() == exam_before  # 不建记录
+    assert db_session.query(Question).count() == q_before  # 不复制题目
+    # 可安全重放：第二次调用结果一致且仍无写入
+    result2 = svc.preview_batch([s.id for s in students], count=3)
+    assert result2["results"][0]["question_refs"] == item["question_refs"]
+    assert db_session.query(ExamRecord).count() == exam_before
+
+
+def test_preview_batch_bank_empty(db_session, env, tmp_path):
+    from app.services.question.historical import reload_bank
+    bank = reload_bank(tmp_path)  # 空库
+    s = _student(db_session, env)
+    svc = AdaptivePracticeService(db_session, bank=bank)
+    result = svc.preview_batch([s.id])
+    assert result["results"][0]["question_refs"] == []
+    assert result["results"][0]["shortfall"] == 3
+
+
+# ---- 2.7 确认落库（persist_batch，design D2） ----
+
+def test_persist_batch_creates_records(db_session, env, tmp_path):
+    from app.services.question.historical import reload_bank
+    p = tmp_path / "全国卷" / "2024"
+    p.mkdir(parents=True, exist_ok=True)
+    (p / "真题.json").write_text(
+        '{"questions": [{"id": "q1", "content": "真题A", "answer": "B", '
+        '"knowledge_points": ["氧化还原反应"], "difficulty": "easy", "options": ["A", "B", "C", "D"]}]}',
+        encoding="utf-8",
+    )
+    bank = reload_bank(tmp_path)
+    students = [_student(db_session, env, name=f"学生{i}", profile={"concept": 1.0}) for i in range(2)]
+    svc = AdaptivePracticeService(db_session, bank=bank)
+    ref = "全国卷/2024/真题#q1"
+    result = svc.persist_batch(
+        [{"student_id": s.id, "question_refs": [ref]} for s in students],
+        name="自适应练习",
+    )
+    assert len(result["results"]) == 2
+    for r in result["results"]:
+        assert r["practice_id"] and r["question_count"] == 1
+    records = db_session.query(ExamRecord).filter(ExamRecord.student_id.isnot(None)).all()
+    assert len(records) == 2
+    for exam in records:
+        assert exam.exam_type.value == "practice"
+        assert len(exam.questions) == 1  # 复制题目关联
+        assert exam.questions[0].source.value == "practice"
+
+
+def test_persist_batch_invalid_student_all_rejected(db_session, env, tmp_path):
+    from app.services.question.historical import reload_bank
+    bank = reload_bank(tmp_path)
+    s = _student(db_session, env)
+    svc = AdaptivePracticeService(db_session, bank=bank)
+    with pytest.raises(ValueError):
+        svc.persist_batch([{"student_id": 99999, "question_refs": []}])
+    assert db_session.query(ExamRecord).filter(ExamRecord.student_id.isnot(None)).count() == 0
+
+
+def test_persist_batch_invalid_ref_all_rejected(db_session, env, tmp_path):
+    from app.services.question.historical import reload_bank
+    p = tmp_path / "全国卷" / "2024"
+    p.mkdir(parents=True, exist_ok=True)
+    (p / "真题.json").write_text(
+        '{"questions": [{"id": "q1", "content": "真题A", "answer": "B", '
+        '"knowledge_points": ["氧化还原反应"], "difficulty": "easy", "options": ["A", "B", "C", "D"]}]}',
+        encoding="utf-8",
+    )
+    bank = reload_bank(tmp_path)
+    students = [_student(db_session, env, name=f"学生{i}", profile={"concept": 1.0}) for i in range(2)]
+    svc = AdaptivePracticeService(db_session, bank=bank)
+    # 第一项合法、第二项 ref 不可解析 → 整批拒绝不落库
+    with pytest.raises(ValueError):
+        svc.persist_batch([
+            {"student_id": students[0].id, "question_refs": ["全国卷/2024/真题#q1"]},
+            {"student_id": students[1].id, "question_refs": ["全国卷/2024/真题#nope"]},
+        ])
+    assert db_session.query(ExamRecord).filter(ExamRecord.student_id.isnot(None)).count() == 0
 
 
 # ---- 抽样 ----

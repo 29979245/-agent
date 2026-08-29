@@ -1,5 +1,17 @@
 """练习 API L2 集成测试（task 5.1-5.4）。"""
-from app.db.models import ExamRecord, ReviewTask, StudentAnswer
+from app.core.security import create_token
+from app.db.models import (
+    Account,
+    AccountRole,
+    Class,
+    ExamRecord,
+    Grade,
+    ReviewTask,
+    School,
+    Student,
+    StudentAnswer,
+    Teacher,
+)
 from tests.integration.conftest import _account, _headers, _practice_exam, _student
 
 Q1 = {"content": "Q1", "answer": "A", "kp": "氧化还原反应", "difficulty": "easy"}
@@ -182,3 +194,139 @@ def test_submit_no_token_401(exercise_client):
     client, db = exercise_client
     resp = client.post("/api/practice/submit", json={"practice_id": 1, "answers": []})
     assert resp.status_code == 401
+
+
+# ---------------- 自适应练习确认落库（doc 28 §六 / design D2） ----------------
+
+def _class_with_students(db, names):
+    """建学校/年级/班级 + 学生 + 教师，返回 (cls, students, teacher_acc)。"""
+    school = School(name="S")
+    db.add(school)
+    db.flush()
+    grade = Grade(school_id=school.id, name="高一", academic_year="2026")
+    db.add(grade)
+    db.flush()
+    cls = Class(grade_id=grade.id, name="1班")
+    db.add(cls)
+    db.flush()
+    students = []
+    for i, n in enumerate(names, 1):
+        s = Student(class_id=cls.id, name=n, barrier_profile={"concept": 1.0})
+        db.add(s)
+        db.flush()
+        students.append(s)
+    t = Teacher(school_id=school.id, name="王老师", phone="13800000001")
+    db.add(t)
+    db.flush()
+    acc = Account(username="t1", password_hash="x", role=AccountRole.teacher,
+                  role_id=t.id)
+    db.add(acc)
+    db.flush()
+    return cls, students, acc
+
+
+def _teacher_headers(account):
+    token = create_token(user_id=account.id, role="teacher", school_id=1)
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _with_bank(tmp_path, content):
+    """注入临时真题库并返回恢复器（防污染全局 bank）。"""
+    from app.services.question import historical as h
+    old = h._global_bank
+    p = tmp_path / "全国卷" / "2024"
+    p.mkdir(parents=True, exist_ok=True)
+    (p / "真题.json").write_text(content, encoding="utf-8")
+    h.reload_bank(tmp_path)
+    return lambda: setattr(h, "_global_bank", old)
+
+
+def test_adaptive_confirm_teacher_200_persists(exercise_client, tmp_path):
+    """教师确认预览 → 逐生落库 ExamRecord + 复制题目（D2）。"""
+    client, db = exercise_client
+    restore = _with_bank(tmp_path, (
+        '{"questions": [{"id": "q1", "content": "真题A", "answer": "B", '
+        '"knowledge_points": ["氧化还原反应"], "difficulty": "easy", '
+        '"options": ["A", "B", "C", "D"]}]}'
+    ))
+    try:
+        cls, students, acc = _class_with_students(db, ["学生甲", "学生乙"])
+        ref = "全国卷/2024/真题#q1"
+        resp = client.post(
+            "/api/practice/adaptive/confirm",
+            json={"class_id": cls.id, "items": [
+                {"student_id": students[0].id, "question_refs": [ref]},
+                {"student_id": students[1].id, "question_refs": [ref]},
+            ]},
+            headers=_teacher_headers(acc),
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body["results"]) == 2
+        assert {r["student_id"] for r in body["results"]} == {s.id for s in students}
+        assert all(r["practice_id"] and r["question_count"] == 1 for r in body["results"])
+        records = db.query(ExamRecord).filter(ExamRecord.student_id.isnot(None)).all()
+        assert len(records) == 2
+        assert all(len(e.questions) == 1 for e in records)
+        assert all(e.questions[0].source.value == "practice" for e in records)
+    finally:
+        restore()
+
+
+def test_adaptive_confirm_student_403(exercise_client):
+    """学生持 practice/create 但非教师 → 403，不落库（D2 显式门控）。"""
+    client, db = exercise_client
+    stu = _student(db)
+    acc = _account(db, stu)
+    resp = client.post(
+        "/api/practice/adaptive/confirm",
+        json={"class_id": 1, "items": [
+            {"student_id": stu.id, "question_refs": ["x"]},
+        ]},
+        headers=_headers(acc),
+    )
+    assert resp.status_code == 403
+    assert db.query(ExamRecord).filter(ExamRecord.student_id.isnot(None)).count() == 0
+
+
+def test_adaptive_confirm_invalid_ref_400_no_write(exercise_client, tmp_path):
+    """非法 ref → 400，整批拒绝不落库。"""
+    client, db = exercise_client
+    restore = _with_bank(tmp_path, "")  # 空库 → ref 不可解析
+    try:
+        cls, students, acc = _class_with_students(db, ["学生甲"])
+        resp = client.post(
+            "/api/practice/adaptive/confirm",
+            json={"class_id": cls.id, "items": [
+                {"student_id": students[0].id, "question_refs": ["全国卷/2024/真题#nope"]},
+            ]},
+            headers=_teacher_headers(acc),
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error_code"] == "ADAPTIVE_CONFIRM_INVALID"
+        assert db.query(ExamRecord).filter(ExamRecord.student_id.isnot(None)).count() == 0
+    finally:
+        restore()
+
+
+def test_adaptive_confirm_empty_refs_400_no_write(exercise_client, tmp_path):
+    """空 question_refs（preview 缺题短fall）→ 400 ADAPTIVE_CONFIRM_INVALID，整批不落库。
+
+    修复 code-review 指出的 422 偏差：空 refs 应走 400/409 家族而非 pydantic 校验错误。
+    """
+    client, db = exercise_client
+    restore = _with_bank(tmp_path, "")
+    try:
+        cls, students, acc = _class_with_students(db, ["学生甲"])
+        resp = client.post(
+            "/api/practice/adaptive/confirm",
+            json={"class_id": cls.id, "items": [
+                {"student_id": students[0].id, "question_refs": []},
+            ]},
+            headers=_teacher_headers(acc),
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error_code"] == "ADAPTIVE_CONFIRM_INVALID"
+        assert db.query(ExamRecord).filter(ExamRecord.student_id.isnot(None)).count() == 0
+    finally:
+        restore()

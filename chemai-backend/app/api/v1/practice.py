@@ -10,10 +10,23 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ForbiddenError, NotFoundError
+from app.core.exceptions import (
+    BusinessRuleViolationError,
+    ForbiddenError,
+    NotFoundError,
+)
 from app.core.permissions import require_permission
-from app.db.models import Account, ExamRecord, ExamType, Question, Student, StudentAnswer
+from app.db.models import (
+    Account,
+    Class,
+    ExamRecord,
+    ExamType,
+    Question,
+    Student,
+    StudentAnswer,
+)
 from app.db.session import SessionLocal, get_db
+from app.services.exercise.adaptive import AdaptivePracticeService
 from app.services.exercise.daily import DailyPracticeScheduler
 from app.services.exercise.side_effects import get_diagnosis_client, run_submit_side_effects
 from app.services.question.serializers import split_knowledge_points
@@ -141,6 +154,71 @@ def generate_practice(request: Request, db: Session = Depends(get_db)) -> dict:
         "difficulty": result["difficulty"],
         "status": "pending",
     }
+
+
+# ---------------- 5.1c 自适应练习确认落库（doc 28 §六 / design D2） ----------------
+
+class AdaptiveConfirmItem(BaseModel):
+    student_id: int
+    # 缺题（preview shortfall）时 refs 为空；不设 min_length，空 refs 在端点返回 400 而非 422
+    question_refs: list[str]
+
+
+class AdaptiveConfirmRequest(BaseModel):
+    class_id: int
+    items: list[AdaptiveConfirmItem] = Field(..., min_length=1)
+
+
+@practice_router.post("/adaptive/confirm")
+@require_permission("practice", "create")
+def confirm_adaptive_practice(
+    request: Request,
+    payload: AdaptiveConfirmRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """教师确认自适应练习预览并逐生落库（审批门控从工具移至该端点，D2）。
+
+    学生亦持 practice/create（矩阵之外），显式门控：仅教师角色可下发。
+    校验学生属于该班级 + refs 可解析；任一非法整批拒绝不落库。
+    """
+    user = request.state.user
+    if user.role != "teacher":
+        raise ForbiddenError(
+            detail="仅教师可下发自适应练习", error_code="ADAPTIVE_CONFIRM_FORBIDDEN"
+        )
+    if db.get(Class, payload.class_id) is None:
+        raise NotFoundError(detail="班级不存在", error_code="CLASS_NOT_FOUND")
+    sids = [item.student_id for item in payload.items]
+    members = {
+        s.id for s in db.query(Student).filter(
+            Student.class_id == payload.class_id, Student.id.in_(sids)
+        ).all()
+    }
+    for sid in sids:
+        if sid not in members:
+            raise ForbiddenError(
+                detail=f"学生 {sid} 不属于班级 {payload.class_id}",
+                error_code="STUDENT_NOT_IN_CLASS",
+            )
+    for item in payload.items:
+        if not item.question_refs:
+            raise BusinessRuleViolationError(
+                detail=f"学生 {item.student_id} 无匹配题目，无法下发",
+                error_code="ADAPTIVE_CONFIRM_INVALID",
+            )
+    try:
+        # persist_batch 全量校验先行、零写入后落库（ValueError 前无任何 db.add）
+        result = AdaptivePracticeService(db).persist_batch(
+            [{"student_id": item.student_id, "question_refs": item.question_refs}
+             for item in payload.items],
+            name="自适应练习",
+        )
+    except ValueError as exc:
+        raise BusinessRuleViolationError(
+            detail=str(exc), error_code="ADAPTIVE_CONFIRM_INVALID"
+        )
+    db.commit()
+    return result
 
 
 # ---------------- 5.2 提交批改 ----------------

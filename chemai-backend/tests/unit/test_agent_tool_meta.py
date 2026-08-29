@@ -29,7 +29,7 @@ def test_required_tools_present():
 
 def test_approval_tools_marked():
     assert TOOL_META["delete_bank"].approval is True
-    assert TOOL_META["assign_adaptive_practice"].approval is True
+    assert TOOL_META["assign_adaptive_practice"].approval is False  # preview-only，审批移至 API（D2）
     assert TOOL_META["web_search"].approval is False
 
 

@@ -38,7 +38,8 @@ PREREQUISITES: dict[str, Callable[[dict], str | None]] = {
 }
 
 # 审批门控工具（doc 30 §5.2 第 4 层 / design D5）
-APPROVAL_TOOLS: frozenset[str] = frozenset({"assign_adaptive_practice", "delete_bank"})
+# assign_adaptive_practice 已改为 preview-only，审批移至 API 确认端点（design D2）
+APPROVAL_TOOLS: frozenset[str] = frozenset({"delete_bank"})
 
 
 @dataclass
