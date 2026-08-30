@@ -93,7 +93,7 @@ def test_execute_tool_audits_success(monkeypatch):
     monkeypatch.setattr(registry, "audit_logger", stub)
     registry.TOOL_IMPLS["_test_audit"] = lambda ctx, **kw: {"result": kw.get("v"), "_component": "x"}
     registry.TOOL_SCHEMAS["_test_audit"] = dict
-    ctx = ToolContext(persona="teacher")
+    ctx = ToolContext(persona="teacher", user={"user_id": 1, "role": "teacher"})
     try:
         out = asyncio.run(registry.execute_tool(ctx, "_test_audit", {"v": 1}))
         assert out == {"result": 1}  # _component 剥离后返回纯净结果
@@ -120,7 +120,7 @@ def test_execute_tool_audits_failure(monkeypatch):
 
     registry.TOOL_IMPLS["_test_boom"] = _boom
     registry.TOOL_SCHEMAS["_test_boom"] = dict
-    ctx = ToolContext(persona="student")
+    ctx = ToolContext(persona="student", user={"user_id": 2, "role": "student"})
     try:
         out = asyncio.run(registry.execute_tool(ctx, "_test_boom", {"q": "x"}))
         assert out["error"] == "tool_failed"
@@ -139,7 +139,7 @@ def test_execute_tool_guard_blocked_not_audited(monkeypatch):
 
     registry, stub, calls = _audit_stub()
     monkeypatch.setattr(registry, "audit_logger", stub)
-    ctx = ToolContext(persona="teacher")
+    ctx = ToolContext(persona="teacher", user={"user_id": 1, "role": "teacher"})
     out = asyncio.run(registry.execute_tool(ctx, "delete_bank", {"bank_id": 3}))
     assert out["error"] == "requires_approval_blocked"
     assert calls == []

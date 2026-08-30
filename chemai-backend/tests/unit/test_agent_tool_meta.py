@@ -14,7 +14,7 @@ def test_registered_tools_covered_by_meta():
 
 
 def test_tools_total():
-    assert len(TOOL_META) == 30
+    assert len(TOOL_META) == 35
 
 
 def test_required_tools_present():
@@ -58,7 +58,8 @@ def test_persona_filter():
     assert {"memory_student_get", "memory_teacher_get"} <= teacher_tools
     parent_tools = set(tools_for_persona("parent"))
     assert parent_tools <= {"weekly_report", "diagnose_barrier", "web_search", "chemistry_tutor",
-                            "memory_student_get"}
+                            "memory_student_get",
+                            "browse_navigate", "browse_read", "browse_click", "browse_input", "browse_screenshot"}
     # 学生开放 4 专题 + 通用辅导 + 实验模拟 + 联网搜索 + 记忆（periodic_law/organic 注册但按 §4.2 不进学生白名单）
     student_tools = set(tools_for_persona("student"))
     assert {"web_search", "ionic_equation_tutor", "stoichiometry_tutor", "redox_tutor",

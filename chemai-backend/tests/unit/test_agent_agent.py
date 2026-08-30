@@ -247,7 +247,8 @@ def test_run_agent_chat_persona_toolset_bounded(tmp_path):
     bound = set(calls["tools"])
     assert bound == {"chemistry_tutor", "simulate_experiment", "web_search",
                      "ionic_equation_tutor", "stoichiometry_tutor", "redox_tutor", "equilibrium_tutor",
-                     "memory_student_get"}
+                     "memory_student_get",
+                     "browse_navigate", "browse_read", "browse_click", "browse_input", "browse_screenshot"}
     assert "diagnose_barrier" not in bound
     assert "generate_questions" not in bound
     assert "memory_teacher_get" not in bound

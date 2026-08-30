@@ -1,7 +1,9 @@
-"""Guard 四层护栏单测（tasks 1.2 / 审查补丁 11.2 执行键登记时机）。"""
+"""Guard 四层护栏单测（tasks 1.2 / 审查补丁 11.2 执行键登记时机 / 课程验收点强化）。"""
+import time
+
 import pytest
 
-from app.agents.guard import APPROVAL_TOOLS, GuardState, strip_special_fields
+from app.agents.guard import APPROVAL_TOOLS, GuardState, build_guard_config, strip_special_fields
 
 
 def test_prerequisites_missing_keyword():
@@ -123,6 +125,89 @@ def test_assign_adaptive_practice_no_longer_approval():
 def test_full_check_pipeline():
     g = GuardState(call_limits={"web_search": 1})
     assert g.check("web_search", {"q": "什么"}) is not None
+
+
+# ---------------- 课程验收点强化：L1 上下文 / L2 Token Bucket+并发 / L3 窗口 ----------------
+
+def test_l1_context_missing_user_blocked():
+    """L1：ToolContext 缺 user 身份或角色 → missing_prerequisites（复用错误码）。"""
+    g = GuardState()
+    assert g.check("list_banks", {}, ctx=None).ok is True  # 直调无上下文不拦截
+    assert g.check("list_banks", {}, ctx=type("C", (), {"user": None})()).error_code == "missing_prerequisites"
+    assert g.check("list_banks", {}, ctx=type("C", (), {"user": {"user_id": 1, "role": ""}})()).error_code == "missing_prerequisites"
+    assert g.check("list_banks", {}, ctx=type("C", (), {"user": {"role": "teacher"}})()).error_code == "missing_prerequisites"  # 缺身份
+    assert g.check("list_banks", {}, ctx=type("C", (), {"user": {"user_id": 1, "role": "teacher"}})()).ok is True
+    assert g.check("list_banks", {}, ctx=type("C", (), {"user": type("U", (), {"user_id": 9, "role": "teacher"})()})()).ok is True  # 对象型身份齐全
+    assert g.check("list_banks", {}, ctx=type("C", (), {"user": type("U", (), {"role": "teacher"})()})()).error_code == "missing_prerequisites"  # 对象型缺身份
+
+
+def test_l2_token_bucket_exhaustion_returns_limit_exceeded():
+    """L2 Token Bucket：初始满桶，消耗后令牌耗尽 → limit_exceeded。"""
+    g = GuardState(token_rates={"web_search": 0.1}, token_capacity={"web_search": 1})
+    assert g.check_limit("web_search").ok is True  # 初始满桶 1 枚
+    g.record_call("web_search")  # 消耗唯一令牌
+    r = g.check_limit("web_search")
+    assert r.ok is False
+    assert r.error_code == "limit_exceeded"
+
+
+def test_l2_concurrency_over_limit_blocked():
+    """L2 并发在途：超过 max_concurrent → limit_exceeded；结束归还后放行。"""
+    g = GuardState(max_concurrent={"web_search": 1})
+    assert g.check_limit("web_search").ok is True
+    g.begin_execution("web_search")
+    r = g.check_limit("web_search")
+    assert r.ok is False
+    assert r.error_code == "limit_exceeded"
+    g.end_execution("web_search")
+    assert g.check_limit("web_search").ok is True
+
+
+def test_l3_dedup_window_expiry_allows_retry():
+    """L3 去重窗口：窗口过期后相同调用不再判重、可再次执行。"""
+    g = GuardState(dedup_window_s=60.0)
+    g.register_execution("list_banks", {})
+    assert g.is_duplicate("list_banks", {}) is True
+    now = time.monotonic()
+    key = g._execution_key("list_banks", {})
+    g._execution_keys[key] = now - 61.0  # 拨回窗口之前
+    assert g.is_duplicate("list_banks", {}) is False
+    assert g.check("list_banks", {}).ok is True
+
+
+def test_build_guard_config_wires_tool_meta_l2():
+    """L2 生产接线：build_guard_config 收纳 TOOL_META 声明的 token/并发配置，未声明沿用默认。"""
+
+    class _Bucketed:
+        call_limit = 2
+        token_rate = 5.0
+        token_capacity = 4
+        max_concurrent = 2
+
+    class _Plain:
+        call_limit = 3
+        token_rate = None
+        token_capacity = None
+        max_concurrent = None
+
+    cfg = build_guard_config({"bucketed": _Bucketed(), "plain": _Plain()})
+    assert cfg == {
+        "call_limits": {"bucketed": 2, "plain": 3},
+        "token_rates": {"bucketed": 5.0},
+        "token_capacity": {"bucketed": 4},
+        "max_concurrent": {"bucketed": 2},
+    }
+    g = GuardState(**cfg)  # 构造有效，证明接线可实例化
+    assert g._concurrency_limit("bucketed") == 2
+    assert g._concurrency_limit("plain") == 1
+
+    # 真实 TOOL_META 集成：web_search 声明 max_concurrent=2，其余不声明 → 默认 1
+    from app.agents.tools.tool_meta import TOOL_META
+
+    real = build_guard_config(TOOL_META)
+    assert len(real["call_limits"]) == 35
+    assert real["max_concurrent"]["web_search"] == 2
+    assert real["max_concurrent"].get("diagnose_barrier") is None  # 未声明不收纳
 
 
 def test_strip_special_fields():

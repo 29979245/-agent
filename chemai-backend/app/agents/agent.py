@@ -17,7 +17,7 @@ import asyncio
 from typing import Any, AsyncIterator, Optional
 
 from app.agents.context import ContextManager
-from app.agents.guard import GuardState
+from app.agents.guard import GuardState, build_guard_config
 from app.agents.memory import MemorySystem
 from app.agents.personas.loader import effective_skills, load_persona
 from app.agents.sse_adapter import agent_events_to_sse
@@ -150,7 +150,7 @@ async def run_agent_chat(
     config = make_agent_config(key)
 
     emit_queue: asyncio.Queue = asyncio.Queue()
-    guard = GuardState(call_limits={name: meta.call_limit for name, meta in TOOL_META.items()})
+    guard = GuardState(**build_guard_config(TOOL_META))  # L2：call_limit + Token Bucket + 并发上限（TOOL_META 可配）
     if resume and resume.get("decision") == "approve":
         # D13 恢复：预标记审批通过，LLM 复调该工具时 L4 放行
         guard.mark_approved(resume.get("tool") or "", resume.get("args") or {})

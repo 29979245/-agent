@@ -13,14 +13,14 @@ def run(coro):
 
 
 def _ctx(**kw):
-    defaults = {"guard": GuardState()}
+    defaults = {"guard": GuardState(), "user": {"user_id": 1, "role": "teacher", "school_id": 1}}
     defaults.update(kw)
     return ToolContext(**defaults)
 
 
 def test_registry_all_tools_registered():
-    assert len(TOOL_IMPLS) == 30
-    assert len(TOOL_SCHEMAS) == 30
+    assert len(TOOL_IMPLS) == 35
+    assert len(TOOL_SCHEMAS) == 35
     from app.agents.tools.tool_meta import TOOL_META
     assert set(TOOL_IMPLS) == set(TOOL_META)
 
