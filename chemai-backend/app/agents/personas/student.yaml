@@ -16,4 +16,9 @@ available_skills:
   - redox_tutor
   - equilibrium_tutor
   - memory_student_get
+  - browse_navigate
+  - browse_read
+  - browse_click
+  - browse_input
+  - browse_screenshot
 data_access: {}

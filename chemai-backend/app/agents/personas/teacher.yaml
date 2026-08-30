@@ -26,4 +26,9 @@ available_skills:
   - memory_teacher_get
   - generate_parent_report
   - send_report_to_parent
+  - browse_navigate
+  - browse_read
+  - browse_click
+  - browse_input
+  - browse_screenshot
 data_access: {}

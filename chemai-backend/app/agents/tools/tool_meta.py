@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Optional
 
 PERSONAS = ("teacher", "student", "tutor", "parent")
 
@@ -19,6 +20,9 @@ class ToolMeta:
     call_limit: int
     approval: bool = False
     icon: str = ""
+    token_rate: Optional[float] = None  # L2 Token Bucket 每秒补充令牌数（None=不启用桶）
+    token_capacity: Optional[int] = None  # L2 桶容量（None=默认 rate*2）
+    max_concurrent: Optional[int] = None  # L2 并发在途上限（None=沿用全局默认 1）
 
 
 TOOL_META: dict[str, ToolMeta] = {}
@@ -49,6 +53,7 @@ register_tool(ToolMeta(
     description="多路联网搜索并返回 ≤400 字摘要。适用：查询题库外的知识、最新资讯、概念解释。",
     personas=PERSONAS,
     call_limit=2,
+    max_concurrent=2,  # L2 并发在途上限（TOOL_META 可配；其余工具沿用默认 1）
     icon="🌐",
 ))
 register_tool(ToolMeta(
@@ -296,6 +301,48 @@ register_tool(ToolMeta(
     call_limit=3,
     approval=True,
     icon="✉️",
+))
+
+# ---------- 浏览器（5 工具，doc 30 §3.8，全角色可用） ----------
+register_tool(ToolMeta(
+    name="browse_navigate",
+    title="打开网页",
+    description="打开 URL 等待加载完成，返回页面标题与正文文本（上限 8000 字）。适用：用户要求访问/打开某个网页查看内容。",
+    personas=PERSONAS,
+    call_limit=3,
+    icon="🌐",
+))
+register_tool(ToolMeta(
+    name="browse_read",
+    title="读取网页元素",
+    description="按元素选择器提取页面元素的文本内容（上限 8000 字符）。适用：导航后读取页面特定区域。",
+    personas=PERSONAS,
+    call_limit=3,
+    icon="📖",
+))
+register_tool(ToolMeta(
+    name="browse_click",
+    title="点击网页元素",
+    description="点击页面元素并等待 0.5s，返回跳转前后 URL。适用：需要点击按钮/链接继续操作。",
+    personas=PERSONAS,
+    call_limit=3,
+    icon="🖱️",
+))
+register_tool(ToolMeta(
+    name="browse_input",
+    title="网页输入文本",
+    description="清空输入框并填入文本。适用：需要在页面表单/搜索框输入内容。",
+    personas=PERSONAS,
+    call_limit=3,
+    icon="⌨️",
+))
+register_tool(ToolMeta(
+    name="browse_screenshot",
+    title="网页截图",
+    description="截取指定区域（缺省整页）的 PNG 截图并 Base64 编码返回。适用：需要查看页面视觉效果。",
+    personas=PERSONAS,
+    call_limit=3,
+    icon="📸",
 ))
 
 

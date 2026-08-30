@@ -60,10 +60,23 @@ def _default_persona(role: str) -> str:
     return _ROLE_DEFAULT_PERSONA.get(role, "tutor")
 
 
+def _resolve_persona(role: str, requested: str) -> str:
+    """Persona 绑定角色（防 Persona 提权）：仅允许角色默认 persona。
+
+    角色 → persona 为确定性映射（teacher→teacher / student→student / parent→parent / 其余→tutor）。
+    客户端显式指定 persona 时 SHALL 等于该角色的默认 persona，否则 403——杜绝跨角色工具集提权
+    （如学生以 teacher persona 取得教师工具集，见安全审计 B1）。
+    """
+    default = _default_persona(role)
+    if requested and requested != default:
+        raise APIException(403, f"persona '{requested}' 与登录角色 '{role}' 不匹配", "PERSONA_FORBIDDEN",
+                           suggestion=f"请使用角色 {role} 对应的 persona（{default}）")
+    return default
+
+
 async def _stream_events(
-    user: UserContext, request: ChatRequest, db: Session, llm: LLMClient
+    user: UserContext, request: ChatRequest, db: Session, llm: LLMClient, persona: str
 ) -> AsyncIterator[str]:
-    persona = request.persona or request.context.get("persona") or _default_persona(user.role)
     try:
         async for name, payload in run_agent_chat(
             persona=persona,
@@ -122,6 +135,9 @@ async def chat_stream(
         school_id=payload.get("school_id"),
     )
 
+    # 防 Persona 提权（安全审计 B1）：persona 绑定角色，客户端不得跨角色指定
+    persona = _resolve_persona(user.role, body.persona or body.context.get("persona"))
+
     # D14 所有权：前端 context.user_id 与 JWT 主体不一致 → 403（防伪造他人会话上下文）
     ctx_uid = body.context.get("user_id")
     if ctx_uid is not None and ctx_uid != payload["user_id"]:
@@ -151,7 +167,7 @@ async def chat_stream(
                                  headers=_stream_headers())
 
     return StreamingResponse(
-        _stream_events(user, body, db, llm),
+        _stream_events(user, body, db, llm, persona),
         media_type="text/event-stream",
         headers=_stream_headers(),
     )
@@ -179,7 +195,7 @@ def _approval_instruction(pending: dict, decision: str) -> str:
 async def _stream_resume(
     user: UserContext, pending: dict, decision: str, db: Session, llm: LLMClient
 ) -> AsyncIterator[str]:
-    persona = pending.get("persona") or _default_persona(user.role)
+    persona = _default_persona(user.role)  # 防提权：恢复路径 persona 一律按角色推导，不信任 pending 存储值
     message = _approval_instruction(pending, decision)
     resume = {"tool": pending.get("tool"), "args": pending.get("args"), "decision": decision}
     try:

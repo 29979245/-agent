@@ -85,6 +85,15 @@ from app.agents.tools import tools_parent_report  # noqa: E402
 register_impl("generate_parent_report", tools_parent_report.GenerateParentReportArgs, tools_parent_report.generate_parent_report)
 register_impl("send_report_to_parent", tools_parent_report.SendReportToParentArgs, tools_parent_report.send_report_to_parent)
 
+# ---------- 浏览器组（tools_browser） ----------
+from app.agents.tools import tools_browser  # noqa: E402
+
+register_impl("browse_navigate", tools_browser.BrowseNavigateArgs, tools_browser.browse_navigate)
+register_impl("browse_read", tools_browser.BrowseReadArgs, tools_browser.browse_read)
+register_impl("browse_click", tools_browser.BrowseClickArgs, tools_browser.browse_click)
+register_impl("browse_input", tools_browser.BrowseInputArgs, tools_browser.browse_input)
+register_impl("browse_screenshot", tools_browser.BrowseScreenshotArgs, tools_browser.browse_screenshot)
+
 
 # ---------------------------------------------------------------- 执行包装
 
@@ -119,7 +128,7 @@ def _emit_directives(ctx: ToolContext, directives: dict, clean: dict) -> None:
 async def execute_tool(ctx: ToolContext, name: str, kwargs: dict) -> dict:
     """Guard 四层 → 执行 → 审计 → 特殊字段剥离 → 指令推送（doc 30 §5/§10 / D11）。"""
     guard: GuardState = ctx.safe_guard if ctx is not None else GuardState()
-    check = guard.check(name, kwargs)
+    check = guard.check(name, kwargs, ctx)
     if not check.ok:
         error = dict(check.error)
         if check.payload:
@@ -128,7 +137,8 @@ async def execute_tool(ctx: ToolContext, name: str, kwargs: dict) -> dict:
     # D11：审批通过后、执行开始时登记执行键（审批阻塞未启动→不登记）
     guard.register_execution(name, kwargs)
     guard.record_call(name)
-    impl = TOOL_IMPLS[name]
+    impl = TOOL_IMPLS[name]  # 先取实现（KeyError 在并发计数前，不泄漏在途槽）
+    guard.begin_execution(name)  # L2 并发在途 +1（finally 归还）
     persona = getattr(ctx, "persona", "") if ctx is not None else ""
     started = time.monotonic()
     try:
@@ -145,6 +155,8 @@ async def execute_tool(ctx: ToolContext, name: str, kwargs: dict) -> dict:
         logger.warning("[tool] %s 执行失败：%s", name, exc)
         return _audit_and_emit(ctx, persona, name, kwargs, started,
                                error={"error": "tool_failed", "message": str(exc), "_guard_error": True})
+    finally:
+        guard.end_execution(name)  # L2 并发在途 -1（异常路径同样归还）
     return _audit_and_emit(ctx, persona, name, kwargs, started, result=result)
 
 

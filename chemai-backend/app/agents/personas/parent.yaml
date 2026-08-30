@@ -12,6 +12,11 @@ available_skills:
   - weekly_report
   - diagnose_barrier
   - memory_student_get
+  - browse_navigate
+  - browse_read
+  - browse_click
+  - browse_input
+  - browse_screenshot
 data_access:
   can_see:
     - own_child_scores

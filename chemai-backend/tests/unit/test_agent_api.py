@@ -104,7 +104,8 @@ def test_stream_default_persona_by_role(client, monkeypatch):
     assert captured["user"].role == "teacher"
 
 
-def test_stream_context_persona_override(client, monkeypatch):
+def test_stream_context_persona_cross_role_403(client, monkeypatch):
+    """防提权 B1：teacher 显式指定 parent persona → 403，不得跨角色覆盖。"""
     import app.api.v1.agent as agent_api
 
     captured = {}
@@ -117,8 +118,56 @@ def test_stream_context_persona_override(client, monkeypatch):
     monkeypatch.setattr(agent_api, "run_agent_chat", _capture)
     body = _body(persona="", context={"persona": "parent"})
     resp = client.post("/api/agent/chat/langgraph/stream", json=body, headers=_auth(role="teacher"))
+    assert resp.status_code == 403
+    assert resp.json()["error_code"] == "PERSONA_FORBIDDEN"
+    assert not captured  # 越权请求不得进入 ReAct
+
+
+def test_stream_persona_request_field_cross_role_403(client):
+    """防提权 B1：student 请求体指定 teacher persona → 403（request.persona 同样不可信）。"""
+    resp = client.post(
+        "/api/agent/chat/langgraph/stream",
+        json=_body(persona="teacher"),
+        headers=_auth(role="student"),
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error_code"] == "PERSONA_FORBIDDEN"
+
+
+def test_stream_persona_matching_role_passes(client, monkeypatch):
+    """防提权 B1：显式指定与角色一致的 persona 放行。"""
+    import app.api.v1.agent as agent_api
+
+    captured = {}
+
+    async def _capture(**kwargs):
+        captured.update(kwargs)
+        yield "done", {"type": "done"}
+
+    _patch_classify(monkeypatch)
+    monkeypatch.setattr(agent_api, "run_agent_chat", _capture)
+    resp = client.post(
+        "/api/agent/chat/langgraph/stream",
+        json=_body(persona="teacher"),
+        headers=_auth(role="teacher"),
+    )
     assert resp.status_code == 200
-    assert captured["persona"] == "parent"
+    assert captured["persona"] == "teacher"
+
+
+def test_resolve_persona_binds_role(monkeypatch):
+    """_resolve_persona：未知角色默认 tutor；显式指定不匹配 → 403，匹配 → 默认。"""
+    import app.api.v1.agent as agent_api
+
+    from app.core.exceptions import APIException
+
+    assert agent_api._resolve_persona("student", "") == "student"
+    assert agent_api._resolve_persona("admin", "") == "tutor"  # 未知角色兜底 tutor
+    assert agent_api._resolve_persona("teacher", "teacher") == "teacher"  # 显式匹配
+    with pytest.raises(APIException) as exc:
+        agent_api._resolve_persona("student", "teacher")
+    assert exc.value.status_code == 403
+    assert exc.value.detail["error_code"] == "PERSONA_FORBIDDEN"
 
 
 # ---------------------------------------------------------------- version 门 / 所有权

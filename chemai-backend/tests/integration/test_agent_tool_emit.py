@@ -116,6 +116,7 @@ def test_search_exam_bank_emits_exam_images(monkeypatch):
     ctx = ToolContext(
         bank=FakeBank(),
         search=UnavailableSearch(),
+        user={"user_id": 7, "role": "teacher"},
         emit=lambda name, payload: events.append((name, payload)),
     )
     result = run(execute_tool(ctx, "search_exam_bank", {"keyword": "看图题目", "count": 3}))

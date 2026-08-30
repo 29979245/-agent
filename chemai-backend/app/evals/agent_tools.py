@@ -1,7 +1,7 @@
 """Agent 工具组 eval（10.1 / 11.2）：注册表完整性 + Guard 四层 + 剥离 + Persona 过滤。
 
 确定性检查（无需 LLM / DB / 网络），供 `run_evals --tier all --compare` 与基线对比：
-- 注册表：TOOL_IMPLS == TOOL_SCHEMAS == TOOL_META（30 工具）、integrity_check 无问题；
+- 注册表：TOOL_IMPLS == TOOL_SCHEMAS == TOOL_META（35 工具）、integrity_check 无问题；
 - Persona：每个 Persona 白名单∩注册工具非空、无越权、student 不含教师专有工具；
 - Guard 四层：前置/限次/去重/审批各自返回正确错误码，D11 登记时机双向
   （审批阻塞未启动不登记；执行开始后登记→重试去重跳过，防重放写）；
@@ -20,19 +20,24 @@ AGENT_TOOLS_PASS_RATE = 0.95
 TEACHER_ONLY_TOOLS = {"memory_teacher_get", "query_ocr_progress", "grade_answer_sheets",
                       "save_grading_results", "generate_parent_report", "send_report_to_parent"}
 
-# student persona 白名单（doc 30 §4.2）：辅导 6 专题 + 通用辅导 + 实验模拟 + 联网 + 读自身记忆
+# student persona 白名单（doc 30 §4.2）：辅导 6 专题 + 通用辅导 + 实验模拟 + 联网 + 读自身记忆 + 浏览器 5 工具
 STUDENT_TOOLS_EXACT = {
     "chemistry_tutor", "simulate_experiment", "web_search",
     "ionic_equation_tutor", "stoichiometry_tutor", "redox_tutor",
     "equilibrium_tutor", "memory_student_get",
+    "browse_navigate", "browse_read", "browse_click", "browse_input", "browse_screenshot",
 }
+
+# 浏览器工具组（doc 30 §3.8）：全角色可用
+BROWSER_TOOLS = {"browse_navigate", "browse_read", "browse_click", "browse_input", "browse_screenshot"}
 
 
 def _registry_checks() -> list[tuple[str, bool]]:
     return [
         ("registry_impl_schema_meta_align",
          set(TOOL_IMPLS) == set(TOOL_SCHEMAS) == set(TOOL_META)),
-        ("registry_total_is_30", len(TOOL_IMPLS) == 30),
+        ("registry_total_is_35", len(TOOL_IMPLS) == 35),
+        ("browser_tools_registered_5", BROWSER_TOOLS <= set(TOOL_IMPLS)),
         ("tool_meta_integrity_no_problems", not integrity_check()),
         ("persona_validation_clean", not validate_personas()),
         ("every_persona_has_tools",
@@ -43,6 +48,8 @@ def _registry_checks() -> list[tuple[str, bool]]:
          not (set(effective_skills("student")) & TEACHER_ONLY_TOOLS)),
         ("approval_tools_match_meta",
          {n for n, m in TOOL_META.items() if m.approval} == set(APPROVAL_TOOLS)),
+        ("all_roles_include_browser_tools",
+         all(BROWSER_TOOLS <= set(effective_skills(p)) for p in ("teacher", "student", "tutor", "parent"))),
     ]
 
 

@@ -46,19 +46,22 @@ def test_effective_skills_intersection_known():
         assert [s for s in whitelist if s in allowed] == skills
 
 
+BROWSER = {"browse_navigate", "browse_read", "browse_click", "browse_input", "browse_screenshot"}
+
+
 def test_effective_skills_expected_sets():
-    # 学生开放 4 专题 + 通用辅导 + 实验模拟 + 联网搜索 + 自读记忆（periodic_law/organic 注册但按 §4.2 不进白名单）
+    # 学生开放 4 专题 + 通用辅导 + 实验模拟 + 联网搜索 + 自读记忆（periodic_law/organic 注册但按 §4.2 不进白名单）+ 浏览器
     assert set(effective_skills("student")) == {
         "chemistry_tutor", "simulate_experiment", "web_search",
         "ionic_equation_tutor", "stoichiometry_tutor", "redox_tutor", "equilibrium_tutor",
         "memory_student_get",
-    }
-    # 全体角色可用记忆（TOOL_META PERSONAS），家长/导师补入 memory_student_get
-    assert set(effective_skills("parent")) == {"weekly_report", "diagnose_barrier", "memory_student_get"}
+    } | BROWSER
+    # 全体角色可用记忆（TOOL_META PERSONAS），家长/导师补入 memory_student_get + 浏览器
+    assert set(effective_skills("parent")) == {"weekly_report", "diagnose_barrier", "memory_student_get"} | BROWSER
     tutor = effective_skills("tutor")
     assert set(tutor) == {"chemistry_tutor", "search_exam_bank", "web_search",
                           "show_exam_workbench", "simulate_experiment", "balance_equation",
-                          "memory_student_get"}
+                          "memory_student_get"} | BROWSER
     teacher = effective_skills("teacher")
     assert "diagnose_barrier" in teacher
     assert "assign_adaptive_practice" in teacher
