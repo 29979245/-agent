@@ -40,8 +40,14 @@ def bind_child(
     db: Session = Depends(get_db),
     parent_id: int = Depends(require_parent),
 ) -> dict:
-    """绑定码建立亲子绑定：匹配 Student.bind_code，成功即消费一次性码。"""
+    """绑定码建立亲子绑定：匹配 Student.bind_code，成功即消费一次性码。
+
+    前端绑定表单 label 为「子女学号」，以 student_id 字段承载学号；
+    按 ID 未命中时按 student_no 兜底解析（student_no 已加索引）。
+    """
     student = db.get(Student, payload.student_id)
+    if student is None:
+        student = db.query(Student).filter(Student.student_no == str(payload.student_id)).first()
     if student is None:
         raise NotFoundError(detail="学生不存在", error_code="STUDENT_NOT_FOUND")
     if not student.bind_code or payload.bind_code != student.bind_code:
@@ -52,7 +58,7 @@ def bind_child(
         db.query(StudentParentBinding)
         .filter(
             StudentParentBinding.parent_id == parent_id,
-            StudentParentBinding.student_id == payload.student_id,
+            StudentParentBinding.student_id == student.id,
         )
         .first()
     )
@@ -67,7 +73,7 @@ def bind_child(
     else:
         binding = StudentParentBinding(
             parent_id=parent_id,
-            student_id=payload.student_id,
+            student_id=student.id,
             bind_code=payload.bind_code,
             relation=payload.relation,
             status=ParentBindingStatus.active,

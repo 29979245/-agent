@@ -33,7 +33,7 @@ from app.main import app
 from app.services.analytics import weekly_report_service as wrs
 from app.services.diagnosis.llm_diagnosis import DiagnosisLLMError
 
-TODAY = datetime.date(2026, 8, 27)
+TODAY = datetime.date.today()
 _VALID_JSON = (
     '{"summary": "本周完成了练习，大部分题目都做对了。", '
     '"detail": "最近在学习和氧气相关的反应。", '

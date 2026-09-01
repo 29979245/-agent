@@ -185,6 +185,26 @@ def test_bind_success_consumes_code(client, db_session):
     assert student.bind_code == ""  # 一次性码被消费
 
 
+def test_bind_falls_back_to_student_no(client, db_session):
+    """前端表单 label 为「子女学号」，却以 student_id 字段承载学号；
+    后端需在按 ID 未命中时按 student_no 兜底解析。"""
+    _, _, cls = _org(db_session)
+    parent, account = _parent_account(db_session)
+    student = _student(db_session, cls.id, bind_code="ABCDEF")
+    student.student_no = "20260001"
+    db_session.commit()
+    resp = client.post(
+        "/api/parent/bind",
+        json={"student_id": 20260001, "bind_code": "ABCDEF", "relation": "father"},
+        headers={"Authorization": f"Bearer {_token(account)}"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "active"
+    db_session.refresh(student)
+    assert student.bind_code == ""  # 一次性码被消费
+
+
 def test_bind_code_mismatch(client, db_session):
     _, _, cls = _org(db_session)
     parent, account = _parent_account(db_session)

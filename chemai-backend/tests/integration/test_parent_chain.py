@@ -41,7 +41,7 @@ from app.db.session import get_db
 from app.main import app
 from app.services.analytics import weekly_report_service as wrs
 
-TODAY = datetime.date(2026, 8, 27)
+TODAY = datetime.date.today()
 
 
 def _at(day, hour=10):

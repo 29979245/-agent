@@ -243,8 +243,11 @@ def main() -> None:
             defaults={"subject": "化学", "head_teacher": teacher.name},
         )
         student, _ = _get_or_create(
-            db, Student, class_id=cls.id, name="演示学生", defaults={"bind_code": "000000"},
+            db, Student, class_id=cls.id, name="演示学生",
+            defaults={"bind_code": "000000", "student_no": "20260001"},
         )
+        if not student.student_no:
+            student.student_no = "20260001"
         _get_or_create(
             db, Account, username="student_demo",
             defaults={"password_hash": hash_password("demo123"),

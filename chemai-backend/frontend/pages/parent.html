@@ -228,6 +228,8 @@
     .drag-handle { width: 36px; height: 4px; background: #ccc; border-radius: 2px; margin: 0 auto 12px; }
     .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
     .sheet-head .st { font-size: 16px; font-weight: 700; color: var(--oxford); }
+    .sheet-head .sheet-actions { display: flex; align-items: center; gap: 8px; }
+    .sheet-new { background: none; border: 1px solid var(--gray); border-radius: 6px; color: var(--gray); font-size: 12px; padding: 3px 10px; cursor: pointer; }
     .sheet-close { background: none; border: none; font-size: 20px; color: var(--gray); cursor: pointer; line-height: 1; }
     .convo { flex: 1; overflow-y: auto; }
     .ai-msg { max-width: 86%; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.6; margin-bottom: 8px; white-space: pre-wrap; }
@@ -345,7 +347,10 @@
     <div class="drag-handle"></div>
     <div class="sheet-head">
       <span class="st">AI 学习顾问</span>
-      <button class="sheet-close" id="sheetClose" aria-label="关闭">×</button>
+      <span class="sheet-actions">
+        <button class="sheet-new" id="newChatBtn">新对话</button>
+        <button class="sheet-close" id="sheetClose" aria-label="关闭">×</button>
+      </span>
     </div>
     <div class="convo" id="convo"></div>
     <div class="chips" id="chips">
@@ -827,10 +832,16 @@
         var threadId = localStorage.getItem('chemai.parent_thread') ||
           'p_conv_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
         localStorage.setItem('chemai.parent_thread', threadId);
+        var curChild = state.children.length ? state.children[state.currentIdx] : null;
         activeStream = ChemAPI.agentChatStream({
           message: text,
           thread_id: threadId,
-          context: { user_id: (me && me.user_id) || null, role: 'parent', persona: 'parent' },
+          context: {
+            user_id: (me && me.user_id) || null,
+            role: 'parent',
+            persona: 'parent',
+            student_id: curChild ? curChild.student_id : null
+          },
         }, {
           onText: function (chunk) {
             if (assistantBubble.textContent === '思考中…') assistantBubble.textContent = '';
@@ -883,6 +894,14 @@
       fab.addEventListener('click', openSheet);
       document.getElementById('sheetClose').addEventListener('click', closeSheet);
       backdrop.addEventListener('click', closeSheet);
+      // 新对话：重置线程（旧线程历史无孩子档案，会污染答复），清空气泡
+      document.getElementById('newChatBtn').addEventListener('click', function () {
+        if (activeStream) { activeStream.cancel(); activeStream = null; }
+        localStorage.removeItem('chemai.parent_thread');
+        document.getElementById('convo').innerHTML = '';
+        document.getElementById('sendBtn').disabled = false;
+        document.getElementById('chatInput').value = '';
+      });
       document.querySelectorAll('#chips .chip').forEach(function (c) {
         c.addEventListener('click', function () { sendChat(c.textContent.trim()); });
       });
