@@ -15,11 +15,21 @@ import io
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.permissions import require_permission
-from app.db.models import Account, Class, Grade, Teacher
+from app.db.models import (
+    Account,
+    Class,
+    Grade,
+    ParentNotification,
+    Student,
+    StudentParentBinding,
+    Teacher,
+)
+from app.db.models.enums import NotificationType, ParentBindingStatus
 from app.db.session import get_db
 from app.services.analytics.panel_service import (
     class_students,
@@ -107,6 +117,52 @@ def student_detail(
     _ensure_not_student(request)
     _require_class_in_teacher_school(db, request, class_id)
     return load_student_detail(db, class_id, student_id)
+
+
+class NotifyStudentRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=500)
+
+
+@panel_router.post("/student/{student_id}/notify")
+@require_permission("diagnosis", "create")
+def notify_student(
+    request: Request,
+    student_id: int,
+    payload: NotifyStudentRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """教师向学生的 active 绑定家长推送一条提醒通知（无绑定 → notified_parents=0）。
+
+    写家长通知走 diagnosis/create（与「推送学习计划」apply 端点同权限，teacher 持有）。
+    """
+    _ensure_not_student(request)
+    student = db.get(Student, student_id)
+    if student is None:
+        raise NotFoundError()
+    _require_class_in_teacher_school(db, request, student.class_id)
+    rows = (
+        db.query(StudentParentBinding.parent_id)
+        .filter(
+            StudentParentBinding.student_id == student_id,
+            StudentParentBinding.status == ParentBindingStatus.active,
+        )
+        .all()
+    )
+    for (parent_id,) in rows:
+        db.add(
+            ParentNotification(
+                parent_id=parent_id,
+                notification_type=NotificationType.reminder,
+                title=f"{student.name}·老师通知",
+                content=payload.content,
+            )
+        )
+    db.commit()
+    return {
+        "sent": bool(rows),
+        "notified_parents": len(rows),
+        "message": f"已通知 {len(rows)} 位家长" if rows else "该学生未绑定家长，通知未发送",
+    }
 
 
 @panel_router.get("/class/{class_id}/trend")

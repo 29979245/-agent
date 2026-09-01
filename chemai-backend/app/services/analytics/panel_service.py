@@ -214,6 +214,44 @@ def load_student_detail(db: Session, class_id: int, student_id: int) -> dict:
     score_points = _students_exam_accuracy_points(
         db, class_id, [student_id]
     ).get(student_id, [])
+    # KPI：练习次数（完成过的练习 = 有作答的 practice 考试）、平均正确率、最后活跃
+    practice_ids = _student_practice_ids(db, student_id)
+    exercises_completed = 0
+    if practice_ids:
+        exercises_completed = (
+            db.query(StudentAnswer.exam_id)
+            .filter(StudentAnswer.exam_id.in_(practice_ids))
+            .distinct()
+            .count()
+        )
+    all_answers = (
+        db.query(StudentAnswer).filter(StudentAnswer.student_id == student_id).all()
+    )
+    total = len(all_answers)
+    accuracy = round(sum(1 for a in all_answers if a.is_correct) / total, 4) if total else 0.0
+    last_exercise_at = (
+        _student_activity_map(db, [student]).get(student_id, {}).get("last_exercise_at")
+    )
+    activity_rows = (
+        db.query(StudentAnswer, Question, ExamRecord)
+        .join(Question, StudentAnswer.question_id == Question.id)
+        .outerjoin(ExamRecord, StudentAnswer.exam_id == ExamRecord.id)
+        .filter(StudentAnswer.student_id == student_id)
+        .order_by(StudentAnswer.answered_at.desc(), StudentAnswer.id.desc())
+        .limit(20)
+        .all()
+    )
+    recent_activity = [
+        {
+            "date": ans.answered_at.date().isoformat() if ans.answered_at else None,
+            "answered_at": ans.answered_at.isoformat() if ans.answered_at else None,
+            "is_correct": ans.is_correct,
+            "exam_name": exam.name if exam else "练习",
+            "content": q.content,
+            "barrier_type": ans.barrier_type.value if ans.barrier_type else None,
+        }
+        for ans, q, exam in activity_rows
+    ]
     wrong_rows = (
         db.query(StudentAnswer, Question)
         .join(Question, StudentAnswer.question_id == Question.id)
@@ -245,6 +283,10 @@ def load_student_detail(db: Session, class_id: int, student_id: int) -> dict:
         "weak_knowledge_points": [kp for kp, _ in weak.most_common(5)],
         "score_trend": _score_trend_items(score_points, limit=TREND_POINTS),
         "wrong_history": wrong_history,
+        "exercises_completed": exercises_completed,
+        "accuracy": accuracy,
+        "last_exercise_at": last_exercise_at,
+        "recent_activity": recent_activity,
     }
 
 
@@ -351,6 +393,23 @@ def _class_metrics(db: Session, cls: Class) -> dict:
         ),
         "practice_count": practice_count,
     }
+
+
+def _student_practice_ids(db: Session, student_id: int) -> list[int]:
+    """该生的练习考试 id（exam_type=practice，排除 training/variant 会话）。"""
+    rows = (
+        db.query(ExamRecord)
+        .filter(
+            ExamRecord.student_id == student_id,
+            ExamRecord.exam_type == ExamType.practice,
+        )
+        .all()
+    )
+    return [
+        r.id
+        for r in rows
+        if (r.question_stats or {}).get("mode") not in ("training", "variant")
+    ]
 
 
 def _student_activity_map(db: Session, students: list[Student]) -> dict[int, dict]:

@@ -116,6 +116,30 @@ def test_memory_student_get_student_self_allowed(db_session, tmp_path):
     assert out["learning_plan"]["title"] == "氧化还原专项计划"
 
 
+def test_memory_student_get_self_default(db_session, tmp_path):
+    """学生缺省 student_id：自动解析本人（Account.role_id → Student.id），无需显式提供。"""
+    school, _, cls = _org(db_session)
+    stu = _student(db_session, cls)
+    acc = _account(db_session, AccountRole.student, stu.id)
+    db_session.commit()
+
+    ctx = _ctx(db_session, {"user_id": acc.id, "role": "student", "school_id": school.id},
+               memory=_mem(tmp_path))
+    out = tools_memory.memory_student_get(ctx)  # 不传 student_id
+    assert out["student_id"] == stu.id
+    assert out["name"] == "张三"
+    assert out["learning_plan"]["title"] == "氧化还原专项计划"
+
+
+def test_memory_student_get_self_default_non_student_cannot_resolve(db_session, tmp_path):
+    """非学生角色缺省 student_id：无法解析本人 → not_found（引导显式提供）。"""
+    school, _, _ = _org(db_session)
+    db_session.commit()
+    ctx = _ctx(db_session, {"user_id": 1, "role": "teacher", "school_id": school.id}, memory=_mem(tmp_path))
+    out = tools_memory.memory_student_get(ctx)
+    assert out["error"] == "not_found"
+
+
 def test_memory_student_get_cross_student_forbidden(db_session, tmp_path):
     school, _, cls = _org(db_session)
     stu_a = _student(db_session, cls, name="张三", student_no="2023001234")

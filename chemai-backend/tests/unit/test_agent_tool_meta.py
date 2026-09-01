@@ -14,7 +14,7 @@ def test_registered_tools_covered_by_meta():
 
 
 def test_tools_total():
-    assert len(TOOL_META) == 35
+    assert len(TOOL_META) == 38
 
 
 def test_required_tools_present():
@@ -30,6 +30,7 @@ def test_required_tools_present():
         "query_ocr_progress", "grade_answer_sheets", "save_grading_results",
         "memory_student_get", "memory_teacher_get",
         "generate_parent_report", "send_report_to_parent",
+        "show_my_wrong_questions", "show_my_review_tasks", "show_my_report",
     } <= names
 
 
@@ -60,10 +61,11 @@ def test_persona_filter():
     assert parent_tools <= {"weekly_report", "diagnose_barrier", "web_search", "chemistry_tutor",
                             "memory_student_get",
                             "browse_navigate", "browse_read", "browse_click", "browse_input", "browse_screenshot"}
-    # 学生开放 4 专题 + 通用辅导 + 实验模拟 + 联网搜索 + 记忆（periodic_law/organic 注册但按 §4.2 不进学生白名单）
+    # 学生开放 4 专题 + 通用辅导 + 实验模拟 + 联网搜索 + 记忆 + 自助（periodic_law/organic 注册但按 §4.2 不进学生白名单）
     student_tools = set(tools_for_persona("student"))
     assert {"web_search", "ionic_equation_tutor", "stoichiometry_tutor", "redox_tutor",
-            "equilibrium_tutor", "chemistry_tutor", "simulate_experiment", "memory_student_get"} <= student_tools
+            "equilibrium_tutor", "chemistry_tutor", "simulate_experiment", "memory_student_get",
+            "show_my_wrong_questions", "show_my_review_tasks", "show_my_report"} <= student_tools
     assert "memory_teacher_get" not in student_tools
 
 

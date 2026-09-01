@@ -34,10 +34,10 @@
       const u = this.getUser();
       return u ? u.role_id : null;
     },
-    // 登录成功后的落点：学生进练习页，教师进工作台，家长进主面板
+    // 登录成功后的落点：学生进 AI 助教（首页），教师进 AI 助手，家长进主面板
     redirectAfterLogin() {
-      if (this.isStudent()) return 'practice.html';
-      if (this.isTeacherLike()) return 'exam-v2.html';
+      if (this.isStudent()) return 'ai-tutor.html';
+      if (this.isTeacherLike()) return 'ai-assistant.html';
       if (this.isParent()) return 'parent.html';
       return null;
     },

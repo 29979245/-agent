@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, AsyncIterator
@@ -18,17 +19,28 @@ from sqlalchemy.orm import Session
 
 from app.agents.agent import (
     AgentVersionError,
+    _message_text,
+    list_user_thread_keys,
+    make_agent_config,
+    make_checkpointer,
     pop_pending_approval,
+    read_history,
     resolve_version,
     run_agent_chat,
+    serialize_history,
+    thread_created_ms,
     thread_key,
 )
 from app.agents.factories.model_factory import LLMClient
 from app.agents.gateway import classify_intent, navigate_shortcut
+from app.agents.memory import MemorySystem
 from app.agents.personas.loader import PersonaLoadError
+from app.agents.sse_adapter import HEARTBEAT
 from app.core.exceptions import APIException
 from app.core.permissions import UserContext
 from app.core.ratelimit import agent_limiter
+from app.db.models import Account, Student, StudentParentBinding
+from app.db.models.enums import AccountRole
 from app.db.session import get_db
 
 logger = logging.getLogger(__name__)
@@ -52,12 +64,86 @@ class ChatRequest(BaseModel):
 
 
 def _frame(name: str, payload: dict) -> str:
-    """格式化 SSE 帧：`event: <name>\\ndata: <json>\\n\\n`（前端 parseSSE 契约）。"""
+    """格式化 SSE 帧：`event: <name>\\ndata: <json>\\n\\n`（前端 parseSSE 契约）。
+
+    心跳帧（HEARTBEAT）渲染为 SSE 注释 `: ping\\n\\n`——前端 parseSSE 无 event/data
+    行直接忽略，仅在网络层保活，防止长静默被空闲超时掐断。
+    """
+    if name == HEARTBEAT:
+        return ": ping\n\n"
     return f"event: {name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 def _default_persona(role: str) -> str:
     return _ROLE_DEFAULT_PERSONA.get(role, "tutor")
+
+
+def _resolve_parent_child(db: Session, user_id: int, child_id) -> int | None:
+    """家长对话目标孩子校验：child_id 为该家长 active 绑定子女时返回之，否则 None。
+
+    身份链：user_id = Account.id → Account.role_id = Parent.id → 绑定表。
+    context.student_id 来自客户端，必须校验绑定关系防越权注入他人孩子档案。
+    """
+    account = db.get(Account, user_id)
+    if account is None or account.role != AccountRole.parent:
+        return None
+    binding = (
+        db.query(StudentParentBinding)
+        .filter(
+            StudentParentBinding.parent_id == account.role_id,
+            StudentParentBinding.student_id == child_id,
+            StudentParentBinding.status == "active",
+        )
+        .first()
+    )
+    return child_id if binding is not None else None
+
+
+def _bind_child_profile(memory: MemorySystem, student: Student) -> None:
+    """注入学生档案 System Message（§9.1，供模型知晓「我在聊哪个孩子」）。"""
+    memory.bind_student_profile({
+        "student_id": student.id,
+        "name": student.name,
+        "class_id": student.class_id,
+        "class_name": student.class_.name if student.class_ else "",
+    })
+
+
+def _build_memory(db: Session, user: UserContext, context: dict | None = None) -> MemorySystem:
+    """构造三层记忆；学生角色绑定本人档案，家长角色绑定 context 当前子女档案
+    （身份注入 §9.1，供模型知晓「我是谁 / 我在聊哪个孩子」）。
+
+    - student：身份链 user_id = Account.id → Account.role_id = Student.id。
+    - parent：context.student_id 须为 active 绑定子女（越权不注入，端点层另行 403）；
+      未显式指定但仅绑定 1 个 active 子女时自动注入，避免 LLM 在无档案时
+      拿模板占位符（如 `${student_context}`）去查学生。
+    """
+    memory = MemorySystem()
+    if user.role == "student":
+        account = db.get(Account, user.user_id)
+        student = db.get(Student, account.role_id) if account else None
+        if student is not None:
+            _bind_child_profile(memory, student)
+    elif user.role == "parent":
+        sid = (context or {}).get("student_id")
+        if sid is not None and _resolve_parent_child(db, user.user_id, sid) == sid:
+            student = db.get(Student, sid)
+            if student is not None:
+                _bind_child_profile(memory, student)
+        elif sid is None:
+            account = db.get(Account, user.user_id)
+            if account is not None:
+                child_ids = [
+                    row[0] for row in db.query(StudentParentBinding.student_id).filter(
+                        StudentParentBinding.parent_id == account.role_id,
+                        StudentParentBinding.status == "active",
+                    ).all()
+                ]
+                if len(child_ids) == 1:
+                    student = db.get(Student, child_ids[0])
+                    if student is not None:
+                        _bind_child_profile(memory, student)
+    return memory
 
 
 def _resolve_persona(role: str, requested: str) -> str:
@@ -85,12 +171,18 @@ async def _stream_events(
             message=request.message,
             db=db,
             llm_client=llm,
+            memory=_build_memory(db, user, request.context),
         ):
             yield _frame(name, payload)
     except PersonaLoadError as exc:
         logger.warning("[agent] Persona 加载失败: %s", exc)
         yield _frame("error", {"type": "error", "message": str(exc), "recoverable": False})
         yield _frame("done", {"type": "done"})
+    except asyncio.CancelledError:
+        # 客户端断开 → 后端流被取消。日志留痕：若检查点恰在工具执行中断开，
+        # 会留下孤儿 tool_call（agent.py 已做自愈），此处仅确认断连来源。
+        logger.info("[agent] 对话流被客户端断开（SSE 取消），thread=%s", request.thread_id)
+        raise
     except Exception as exc:  # noqa: BLE001 —— 流中异常 → error + done 收尾
         logger.exception("[agent] 对话流异常: %s", exc)
         yield _frame("error", {"type": "error", "message": str(exc), "recoverable": True})
@@ -149,6 +241,13 @@ async def chat_stream(
         raise APIException(403, "thread_id 含非法分隔符", "THREAD_OWNERSHIP_DENIED",
                            suggestion="请使用不含冒号的会话标识")
 
+    # 家长绑定校验：context.student_id 必须为当前家长 active 绑定子女（防越权聊他人孩子）
+    if user.role == "parent":
+        sid = body.context.get("student_id")
+        if sid is not None and _resolve_parent_child(db, user.user_id, sid) != sid:
+            raise APIException(403, "无权查看该学生的学情", "PARENT_CHILD_NOT_BOUND",
+                               suggestion="请在家长端选择已绑定的子女")
+
     # Token Bucket 限流（D6）：按用户
     if not agent_limiter.allow(str(user.user_id)):
         raise APIException(429, "请求过于频繁，请稍后再试", "RATE_LIMIT_EXCEEDED",
@@ -206,6 +305,7 @@ async def _stream_resume(
             message=message,
             db=db,
             llm_client=llm,
+            memory=_build_memory(db, user),
             resume=resume,
         ):
             yield _frame(name, payload)
@@ -247,3 +347,49 @@ async def approval_resume(
         media_type="text/event-stream",
         headers=_stream_headers(),
     )
+
+
+# ---------------------------------------------------------------- 会话历史（设计：对话跨 tab 持久化）
+
+
+@agent_router.get("/threads")
+async def list_threads(request: Request, db: Session = Depends(get_db)) -> dict:
+    """当前用户的会话列表（学生端历史抽屉）：按最近 checkpoint 倒序，标题=首条用户消息。
+
+    键 = `{user_id}:{thread_id}`（D14），仅枚举当前 JWT 主体的线程，天然防跨用户读取。
+    """
+    payload = request.state.user
+    user_id = payload["user_id"]
+    items: list[dict] = []
+    async with make_checkpointer() as saver:
+        for key, tid in list_user_thread_keys(user_id):
+            tup = await saver.aget_tuple(make_agent_config(key))
+            if tup is None:
+                continue
+            messages = tup.checkpoint["channel_values"].get("messages") or []
+            title = ""
+            for m in messages:
+                if getattr(m, "type", None) == "human" and _message_text(getattr(m, "content", "")).strip():
+                    title = _message_text(getattr(m, "content", ""))[:24]
+                    break
+            items.append({
+                "thread_id": tid,
+                "title": title or "新对话",
+                "created_ms": thread_created_ms(tid),
+                "message_count": len(messages),
+            })
+    return {"threads": items}
+
+
+@agent_router.get("/threads/{thread_id}/messages")
+async def thread_messages(request: Request, thread_id: str, db: Session = Depends(get_db)) -> dict:
+    """单线程消息回放（纯文本 user/assistant 气泡）。D14 键隔离：`:` 入参 403。"""
+    payload = request.state.user
+    user_id = payload["user_id"]
+    if ":" in thread_id:
+        raise APIException(403, "thread_id 含非法分隔符", "THREAD_OWNERSHIP_DENIED",
+                           suggestion="请使用不含冒号的会话标识")
+    key = thread_key(user_id, thread_id)
+    async with make_checkpointer() as saver:
+        messages = await read_history(saver, make_agent_config(key))
+    return {"thread_id": thread_id, "messages": serialize_history(messages)}

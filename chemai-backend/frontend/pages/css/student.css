@@ -322,6 +322,55 @@ h1, h2, h3, .serif { font-family: "Cormorant Garamond", Georgia, "Songti SC", "S
 .option.wrong .letter { border-color: var(--wrong-border); color: var(--wrong-border); background: #fff; }
 .option.wrong .mark { opacity: 1; color: var(--wrong-border); }
 
+/* 主观题（无选项）文本作答框 */
+.subj-input {
+  width: 100%;
+  min-height: 96px;
+  padding: 12px;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink);
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  resize: vertical;
+  box-sizing: border-box;
+  background: #fff;
+}
+.subj-input:focus { outline: none; border-color: var(--oxford); }
+
+/* 主观题化学符号快捷条（点按插入光标处） */
+.formula-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 8px;
+}
+.formula-label { font-size: 11px; color: var(--muted); margin-right: 2px; }
+.fbtn {
+  min-width: 32px;
+  height: 30px;
+  padding: 0 7px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+.fbtn:hover { border-color: var(--teal); color: var(--teal); }
+.fbtn:active { transform: scale(0.95); }
+
 /* ===== 答题导航 ===== */
 .qnav {
   padding: 12px;
@@ -507,6 +556,8 @@ a.tabbar-item { text-decoration: none; }
 .drawer-history { flex: 1; overflow-y: auto; }
 .history-item { padding: 12px 20px; cursor: pointer; }
 .history-item:active { background: rgba(255,255,255,.05); }
+.history-item.active { background: rgba(255,255,255,.08); }
+.history-item.active .history-title { color: #7fd1cf; }
 .history-title {
   font-size: 14px; color: #fff; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis;

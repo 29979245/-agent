@@ -18,13 +18,13 @@ from pydantic import BaseModel, Field
 from app.core.exceptions import ForbiddenError
 from app.db.models import Account, Student, StudentParentBinding
 from app.services.diagnosis.aggregation import normalize_profile
-from app.agents.tools.context import ToolContext, user_id, user_role
+from app.agents.tools.context import ToolContext, self_student_id, user_id, user_role
 
 _DOMINANT_LABELS = {"concept": "概念理解", "reading": "审题障碍", "expression": "表述障碍"}
 
 
 class MemoryStudentGetArgs(BaseModel):
-    student_id: int = Field(..., description="学生 ID")
+    student_id: Optional[int] = Field(default=None, description="学生 ID（学生角色可缺省，自动取本人）")
 
 
 class MemoryTeacherGetArgs(BaseModel):
@@ -54,12 +54,7 @@ def _assert_access_ok(ctx: ToolContext, student_id: int) -> None:
     """角色级读取门控：student 仅自身、parent 仅绑定子女；其余角色（teacher/tutor）不设限。"""
     role = user_role(ctx)
     if role == "student":
-        own_id = 0
-        if ctx.db is not None:
-            account = ctx.db.get(Account, user_id(ctx))
-            if account is not None:
-                own_id = account.role_id
-        if own_id != student_id:
+        if student_id != self_student_id(ctx):
             raise ForbiddenError(
                 detail="学生仅可读取自己的记忆",
                 error_code="MEMORY_SELF_ONLY",
@@ -112,10 +107,17 @@ def push_student_diagnosis_memory(ctx: ToolContext, student_id: int, *, source: 
 
 # ---------------------------------------------------------------- 工具实现
 
-def memory_student_get(ctx: ToolContext, student_id: int) -> dict:
-    """读取学生诊断历史（最近 5 条）与当前学习计划（doc 30 §3.6 工具 13）。"""
+def memory_student_get(ctx: ToolContext, student_id: Optional[int] = None) -> dict:
+    """读取学生诊断历史（最近 5 条）与当前学习计划（doc 30 §3.6 工具 13）。
+
+    学生角色可缺省 student_id：自动解析本人（Account.role_id）；教师/家长需显式指定。
+    """
     if ctx.db is None:
         return {"error": "db_unavailable", "message": "数据库未注入", "_guard_error": True}
+    if student_id is None:
+        student_id = self_student_id(ctx)
+        if student_id is None:
+            return {"error": "not_found", "message": "无法解析当前学生，请显式提供学生 ID", "_guard_error": True}
     _assert_access_ok(ctx, student_id)
     student = ctx.db.get(Student, student_id)
     if student is None:

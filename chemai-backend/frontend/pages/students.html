@@ -132,6 +132,16 @@
     .btn-teal-fill:hover { background: #0f5859; }
     .btn-teal-outline { background: var(--white); color: var(--teal); border: 1px solid var(--teal); padding: 10px 14px; font-weight: 500; flex: 1; }
     .btn-gray-outline { background: var(--white); color: var(--gray); border: 1px solid var(--border); padding: 10px 14px; font-weight: 500; flex: 1; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 6px 0 4px; }
+    .kpi-cell { background: var(--paper); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 8px; text-align: center; }
+    .kpi-num { font-size: 20px; font-weight: 700; color: var(--oxford); line-height: 1.2; }
+    .kpi-label { font-size: 12px; color: var(--gray); margin-top: 4px; }
+    .act-item { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .act-date { color: var(--gray); font-size: 12px; width: 52px; flex-shrink: 0; padding-top: 2px; }
+    .act-dot { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+    .act-dot.ok { background: #dcfce7; color: var(--good); }
+    .act-dot.bad { background: #fee2e2; color: var(--low); }
+    .act-text { color: #374151; line-height: 1.5; }
 
     @media (max-width: 900px) {
       .student-grid { grid-template-columns: 1fr; }
@@ -154,6 +164,8 @@
       </span>
     </div>
     <nav class="nav-links">
+      <a class="nav-link" href="ai-assistant.html">AI助手</a>
+      <a class="nav-link" href="exam-v2.html">出题工作台</a>
       <a class="nav-link" href="panel.html">学情面板</a>
       <a class="nav-link active" href="students.html">学生管理</a>
     </nav>
@@ -226,6 +238,13 @@
       <div class="info-row"><span class="info-label">班级</span><span class="info-value" id="drawerClass">—</span></div>
       <div class="info-row"><span class="info-label">活跃状态</span><span class="info-value" id="drawerActive">—</span></div>
 
+      <div class="kpi-grid" id="drawerKpi">
+        <div class="kpi-cell"><div class="kpi-num" id="kpiExercises">—</div><div class="kpi-label">练习次数</div></div>
+        <div class="kpi-cell"><div class="kpi-num" id="kpiAccuracy">—</div><div class="kpi-label">平均正确率</div></div>
+        <div class="kpi-cell"><div class="kpi-num" id="kpiTrend">—</div><div class="kpi-label">近势</div></div>
+        <div class="kpi-cell"><div class="kpi-num" id="kpiActive">—</div><div class="kpi-label">最后活跃</div></div>
+      </div>
+
       <div class="drawer-section-title">障碍分布</div>
       <div id="drawerBarriers"></div>
 
@@ -235,10 +254,27 @@
       <div class="drawer-section-title">薄弱知识点</div>
       <div class="tag-wrap" id="drawerTags"></div>
 
+      <div class="drawer-section-title">最近活动</div>
+      <div id="drawerActivity"></div>
+
       <div class="action-row">
-        <button class="btn btn-teal-fill" disabled title="功能建设中">生成学习计划</button>
-        <button class="btn btn-teal-outline" disabled title="功能建设中">发送通知</button>
+        <button class="btn btn-teal-fill" id="planGenBtn">生成学习计划</button>
+        <button class="btn btn-teal-outline" id="notifyBtn">发送通知</button>
         <button class="btn btn-gray-outline" disabled title="功能建设中">编辑信息</button>
+      </div>
+
+      <div id="notifyBox" style="display:none;">
+        <div class="drawer-section-title">发送通知</div>
+        <textarea id="notifyText" rows="3" style="width:100%;box-sizing:border-box;border:1px solid var(--border-strong);border-radius:var(--radius);padding:10px;font-size:13px;font-family:inherit;color:var(--oxford);" placeholder="输入通知内容，推送给该学生已绑定的家长…"></textarea>
+        <button class="btn btn-teal-fill" id="notifySendBtn" style="margin-top:10px;width:100%;">发送</button>
+        <div id="notifyMessage" style="display:none;margin-top:10px;font-size:13px;color:var(--gray);"></div>
+      </div>
+
+      <div id="planPreview" style="display:none;">
+        <div class="drawer-section-title">学习计划预览</div>
+        <div id="planPreviewBody" style="font-size:13px;line-height:1.7;"></div>
+        <button class="btn btn-teal-fill" id="planPushBtn" style="display:none;margin-top:14px;width:100%;">推送给学生</button>
+        <div id="planMessage" style="display:none;margin-top:14px;font-size:13px;color:var(--gray);"></div>
       </div>
     </div>
   </aside>
@@ -267,6 +303,9 @@
       var classAvgById = {};  // classId -> recent_exam_avg
       var classes = [];
       var currentPage = 1;
+      var currentStudent = null;
+      var currentPlanPreview = null;
+      var toastTimer = null;
 
       function el(id) { return document.getElementById(id); }
       function esc(s) {
@@ -384,6 +423,12 @@
 
       // ---------- 抽屉 ----------
       function openDrawer(student, className) {
+        currentStudent = student;
+        currentPlanPreview = null;
+        el('planGenBtn').disabled = false;
+        el('planPreview').style.display = 'none';
+        el('planPushBtn').style.display = 'none';
+        el('planMessage').style.display = 'none';
         el('drawerName').textContent = student.name;
         el('drawerId').textContent = student.id;
         el('drawerClass').textContent = className;
@@ -392,19 +437,35 @@
         el('drawerBarriers').innerHTML = barrierBars(student.barrier_profile);
         el('drawerTags').innerHTML = '<span class="tag">加载中…</span>';
         el('drawerTrendBox').innerHTML = '<div class="muted" style="font-size:12px">加载中…</div>';
+        el('drawerActivity').innerHTML = '<div class="muted" style="font-size:12px;padding:10px 0">加载中…</div>';
+        ['kpiExercises', 'kpiAccuracy', 'kpiTrend', 'kpiActive'].forEach(function (id) {
+          el(id).textContent = '—';
+          el(id).style.color = '';
+        });
+        el('notifyBox').style.display = 'none';
+        el('notifyMessage').style.display = 'none';
         var overlay = el('overlay');
         overlay.style.display = 'block';
         void overlay.offsetWidth;
         overlay.classList.add('visible');
         el('drawer').style.right = '0';
-        // 按需加载详情（薄弱点 + 完整趋势）
+        // 按需加载详情（薄弱点 + 完整趋势 + KPI + 最近活动）
         ChemAPI.getStudentDetail(student.classId, student.id).then(function (d) {
           el('drawerTags').innerHTML = (d.weak_knowledge_points && d.weak_knowledge_points.length)
             ? d.weak_knowledge_points.map(function (t) { return '<span class="tag">' + esc(t) + '</span>'; }).join('')
             : '<span class="tag">暂无记录</span>';
           el('drawerTrendBox').innerHTML = trendSvg(d.score_trend || []);
+          var acc = num(d.accuracy) * 100;
+          el('kpiExercises').textContent = num(d.exercises_completed);
+          el('kpiAccuracy').textContent = Math.round(acc) + '%';
+          var arrow = acc > 60 ? '↗' : (acc > 40 ? '→' : '↘');
+          el('kpiTrend').textContent = arrow;
+          el('kpiTrend').style.color = arrow === '↗' ? '#16a34a' : (arrow === '→' ? '#eab308' : '#ef4444');
+          el('kpiActive').textContent = d.last_exercise_at ? String(d.last_exercise_at).slice(0, 10) : '—';
+          el('drawerActivity').innerHTML = activityList(d.recent_activity || []);
         }).catch(function (err) {
           el('drawerTags').innerHTML = '<span class="tag">加载失败</span>';
+          el('drawerActivity').innerHTML = '<div class="muted" style="font-size:12px;padding:10px 0">加载失败</div>';
           if (window.console) console.error(err);
         });
       }
@@ -455,11 +516,158 @@
           '<div class="x-labels">' + labels + '</div>';
       }
 
+      function short(s) {
+        var t = String(s === undefined || s === null ? '' : s)
+          .replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        return t.length > 28 ? t.slice(0, 28) + '…' : t;
+      }
+
+      function activityList(items) {
+        if (!items.length) {
+          return '<div class="muted" style="font-size:12px;padding:10px 0">暂无活动记录</div>';
+        }
+        return items.map(function (it) {
+          var mark = it.is_correct
+            ? '<span class="act-dot ok">✓</span>'
+            : '<span class="act-dot bad">✗</span>';
+          return '<div class="act-item">' +
+            '<span class="act-date">' + esc(String(it.date || '').slice(5)) + '</span>' +
+            mark +
+            '<span class="act-text"><b>' + esc(it.exam_name || '练习') + '</b> · ' + esc(short(it.content)) + '</span>' +
+            '</div>';
+        }).join('');
+      }
+
       window.closeDrawer = function closeDrawer() {
         el('drawer').style.right = '-480px';
         el('overlay').classList.remove('visible');
+        el('notifyBox').style.display = 'none';
+        el('notifyMessage').style.display = 'none';
         setTimeout(function () { el('overlay').style.display = 'none'; }, 300);
       };
+
+      // ---------- 发送通知（输入 → 推送给已绑定家长）----------
+      function showNotifyMessage(text) {
+        var msg = el('notifyMessage');
+        msg.textContent = text;
+        msg.style.display = 'block';
+      }
+
+      function toggleNotifyBox() {
+        var box = el('notifyBox');
+        var showing = box.style.display !== 'none';
+        if (showing) {
+          box.style.display = 'none';
+        } else {
+          el('notifyText').value = '';
+          el('notifyMessage').style.display = 'none';
+          box.style.display = 'block';
+          el('notifyText').focus();
+        }
+      }
+
+      function sendNotify() {
+        var content = el('notifyText').value.trim();
+        if (!content) {
+          showNotifyMessage('请输入通知内容');
+          return;
+        }
+        var sendBtn = el('notifySendBtn');
+        sendBtn.disabled = true;
+        ChemAPI.sendStudentNotification(currentStudent.id, content).then(function (resp) {
+          toast((resp && resp.message) || '已发送');
+          el('notifyBox').style.display = 'none';
+          el('notifyMessage').style.display = 'none';
+        }).catch(function (err) {
+          showNotifyMessage((err && err.message) || '发送失败，请稍后重试');
+        }).finally(function () {
+          sendBtn.disabled = false;
+        });
+      }
+
+      // ---------- 学习计划（生成预览 → 确认推送）----------
+      function renderPlanText(text) {
+        // 规则生成器的 plan_text 仅含 ## 标题与 **加粗**，就地渲染即可
+        return esc(text)
+          .replace(/^## (.+)$/gm, '<h4>$1</h4>')
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\n/g, '<br>');
+      }
+
+      function renderPlanPreview(plan) {
+        var html = '';
+        if (plan.title) html += '<div style="font-weight:600;font-size:15px;margin-bottom:8px;">' + esc(plan.title) + '</div>';
+        if (plan.plan_text) html += '<div>' + renderPlanText(plan.plan_text) + '</div>';
+        if (plan.plan_data && plan.plan_data.days) {
+          html += plan.plan_data.days.map(function (day) {
+            var tasks = (day.tasks || []).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('');
+            return '<div style="margin-top:10px;"><div style="font-weight:600;">' + esc(day.label) + '</div>' +
+              '<ul style="margin:4px 0 0 18px;padding:0;">' + tasks + '</ul></div>';
+          }).join('');
+        }
+        return html;
+      }
+
+      function showPlanMessage(text) {
+        var msg = el('planMessage');
+        msg.textContent = text;
+        msg.style.display = 'block';
+      }
+
+      function generatePlan(student) {
+        var genBtn = el('planGenBtn');
+        var preview = el('planPreview');
+        var pushBtn = el('planPushBtn');
+        var body = el('planPreviewBody');
+        genBtn.disabled = true;
+        preview.style.display = 'block';
+        body.innerHTML = '生成中…';
+        pushBtn.style.display = 'none';
+        el('planMessage').style.display = 'none';
+        ChemAPI.generateLearningPlan(student.id).then(function (plan) {
+          currentPlanPreview = plan;
+          body.innerHTML = renderPlanPreview(plan);
+          pushBtn.style.display = 'block';
+        }).catch(function (err) {
+          currentPlanPreview = null;
+          body.innerHTML = '';
+          showPlanMessage(err && err.status === 409
+            ? '暂无足够学习数据，无法生成计划'
+            : (err && err.message) || '生成失败，请稍后重试');
+        }).finally(function () {
+          genBtn.disabled = false;
+        });
+      }
+
+      function pushPlan(student) {
+        var pushBtn = el('planPushBtn');
+        pushBtn.disabled = true;
+        ChemAPI.applyLearningPlan(student.id, currentPlanPreview).then(function () {
+          toast('学习计划已推送给学生');
+          el('planMessage').style.display = 'none';
+          pushBtn.style.display = 'none';
+        }).catch(function (err) {
+          showPlanMessage((err && err.message) || '推送失败，请稍后重试');
+        }).finally(function () {
+          pushBtn.disabled = false;
+        });
+      }
+
+      function toast(text) {
+        var t = el('toastMsg');
+        if (!t) {
+          t = document.createElement('div');
+          t.id = 'toastMsg';
+          t.style.cssText = 'position:fixed;bottom:32px;left:50%;transform:translateX(-50%);' +
+            'background:#002045;color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;' +
+            'z-index:100;opacity:0;transition:opacity .25s ease;';
+          document.body.appendChild(t);
+        }
+        t.textContent = text;
+        t.style.opacity = '1';
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { t.style.opacity = '0'; }, 2200);
+      }
 
       // ---------- 事件绑定 ----------
       el('searchInput').addEventListener('input', renderGrid);
@@ -484,6 +692,18 @@
       });
       document.addEventListener('keydown', function (ev) {
         if (ev.key === 'Escape') closeDrawer();
+      });
+      el('planGenBtn').addEventListener('click', function () {
+        if (currentStudent) generatePlan(currentStudent);
+      });
+      el('planPushBtn').addEventListener('click', function () {
+        if (currentStudent && currentPlanPreview) pushPlan(currentStudent);
+      });
+      el('notifyBtn').addEventListener('click', function () {
+        if (currentStudent) toggleNotifyBox();
+      });
+      el('notifySendBtn').addEventListener('click', function () {
+        if (currentStudent) sendNotify();
       });
 
       // ---------- 数据加载：全校各班级学生 + 班级均分 ----------
@@ -523,15 +743,26 @@
       }
 
       loadAll().then(function () {
+        var params = new URLSearchParams(window.location.search);
         // 深链：?student=<姓名> 自动打开对应抽屉
-        var name = new URLSearchParams(window.location.search).get('student');
-        if (!name) return;
-        var s = allStudents.find(function (x) { return x.name === name; });
-        if (s) {
-          openDrawer(s, s.className);
-          // 高亮并滚动到该生卡片
-          var card = document.querySelector('.student-card[data-id="' + s.id + '"]');
-          if (card) card.style.borderColor = '#13696a';
+        var name = params.get('student');
+        if (name) {
+          var s = allStudents.find(function (x) { return x.name === name; });
+          if (s) {
+            openDrawer(s, s.className);
+            // 高亮并滚动到该生卡片
+            var card = document.querySelector('.student-card[data-id="' + s.id + '"]');
+            if (card) card.style.borderColor = '#13696a';
+          }
+        }
+        // 深链：?focus=<student_id>&action=plan 自动打开抽屉并触发生成（对应 generate_learning_plan 工具路由）
+        var focusId = params.get('focus');
+        if (focusId && params.get('action') === 'plan') {
+          var focus = allStudents.find(function (x) { return String(x.id) === focusId; });
+          if (focus) {
+            openDrawer(focus, focus.className);
+            generatePlan(focus);
+          }
         }
       }).catch(function (err) {
         el('studentGrid').innerHTML = '<div class="empty-state">学生数据加载失败</div>';

@@ -50,11 +50,12 @@ BROWSER = {"browse_navigate", "browse_read", "browse_click", "browse_input", "br
 
 
 def test_effective_skills_expected_sets():
-    # 学生开放 4 专题 + 通用辅导 + 实验模拟 + 联网搜索 + 自读记忆（periodic_law/organic 注册但按 §4.2 不进白名单）+ 浏览器
+    # 学生开放 4 专题 + 通用辅导 + 实验模拟 + 联网搜索 + 自读记忆 + 3 自助工具（periodic_law/organic 注册但按 §4.2 不进白名单）+ 浏览器
     assert set(effective_skills("student")) == {
         "chemistry_tutor", "simulate_experiment", "web_search",
         "ionic_equation_tutor", "stoichiometry_tutor", "redox_tutor", "equilibrium_tutor",
         "memory_student_get",
+        "show_my_wrong_questions", "show_my_review_tasks", "show_my_report",
     } | BROWSER
     # 全体角色可用记忆（TOOL_META PERSONAS），家长/导师补入 memory_student_get + 浏览器
     assert set(effective_skills("parent")) == {"weekly_report", "diagnose_barrier", "memory_student_get"} | BROWSER

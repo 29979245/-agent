@@ -13,10 +13,10 @@ JSON 四重硬化（评审 D5/F4 / T7）：
 """
 import json
 import re
-import time
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from app.agents.factories.model_factory import LLMClient, ProviderError
 from app.config import settings
 
 # 障碍枚举（与 BarrierType 一致，rule 侧只产 concept/expression，reading 走 LLM）
@@ -26,7 +26,6 @@ CORE_FIELDS = ("barrier_type", "reasoning", "confidence", "suggestion")
 # Fallback 链（与 config.py 一致：MiMo-V2.5 → qwen-turbo → DeepSeek）
 PROVIDER_CHAIN = ("mimo", "qwen", "deepseek")
 RETRY_PER_PROVIDER = 3
-RETRY_BASE_DELAY = 0.5
 MAX_QUESTION_CHARS = 500
 MAX_HISTORY_ITEMS = 5
 PARSE_ATTEMPTS = 3
@@ -239,36 +238,22 @@ def _response_format_for(provider: str) -> dict | None:
     return None
 
 
-def _chat(provider: str, messages: list[dict]) -> str:
-    """单 Provider 调用。真实 HTTP 传输在 LLM 基础设施落地时接入；当前无密钥即报错。"""
-    if not settings.llm_api_key:
-        raise DiagnosisLLMError(f"LLM Provider '{provider}' 未配置 llm_api_key")
-    raise DiagnosisLLMError(f"Provider '{provider}' 的 HTTP 传输尚未接入（诊断服务待 LLM 基建）")
-
-
 class FallbackDiagnosisLLMClient:
-    """默认三级 Fallback 客户端：MiMo-V2.5 → qwen-turbo → DeepSeek，每级 3 次重试 + 指数退避。"""
+    """默认三级 Fallback 客户端：复用 model_factory.LLMClient（熔断 + 重试 + 回退，完整 HTTP 传输）。"""
 
     def __init__(self, provider_chain: tuple[str, ...] = PROVIDER_CHAIN,
                  retries: int = RETRY_PER_PROVIDER) -> None:
-        self.provider_chain = provider_chain
-        self.retries = retries
+        self._llm = LLMClient(chain=provider_chain, retries=retries)
 
     @property
     def available(self) -> bool:
         return bool(settings.llm_api_key)
 
     def complete(self, messages: list[dict]) -> str:
-        last_error: Exception | None = None
-        for provider in self.provider_chain:
-            for attempt in range(self.retries):
-                try:
-                    return _chat(provider, messages)
-                except DiagnosisLLMError as e:
-                    last_error = e
-                    if attempt < self.retries - 1:
-                        time.sleep(RETRY_BASE_DELAY * (2 ** attempt))
-        raise DiagnosisLLMError(f"三级 Fallback 全部失败: {last_error}")
+        try:
+            return self._llm.complete_chain(messages)
+        except ProviderError as e:
+            raise DiagnosisLLMError(f"三级 Fallback 全部失败: {e}") from e
 
 
 def diagnose_llm(inputs: dict, client: DiagnosisLLMClient | None = None,

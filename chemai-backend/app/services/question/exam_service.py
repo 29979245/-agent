@@ -273,6 +273,62 @@ class ExamService:
             })
         return {"exam_id": exam_id, "student_id": student_id, "answers": items}
 
+    # ---- 主观题人工复核（阅卷中） ----
+
+    def review_queue(self, exam_id: int) -> dict:
+        """待人工复核清单：LLM 判不出（review_needed=True）的主观题作答，倒序。"""
+        exam = self._get(exam_id)
+        rows = (
+            self.db.query(StudentAnswer)
+            .filter(
+                StudentAnswer.exam_id == exam_id,
+                StudentAnswer.review_needed.is_(True),
+            )
+            .order_by(StudentAnswer.answered_at.desc(), StudentAnswer.id.desc())
+            .all()
+        )
+        items = []
+        for a in rows:
+            student = self.db.get(Student, a.student_id)
+            q = self.db.get(Question, a.question_id)
+            items.append({
+                "answer_id": a.id,
+                "student_id": a.student_id,
+                "student_name": student.name if student else "",
+                "question_id": a.question_id,
+                "question_content": q.content if q else "",
+                "standard_answer": q.answer if q else "",
+                "student_answer": a.answer_text,
+                "review_reason": a.review_reason,
+                "is_correct": a.is_correct,
+                "answered_at": a.answered_at.isoformat() if a.answered_at else None,
+            })
+        return {
+            "exam_id": exam_id,
+            "name": exam.name,
+            "pending": len(items),
+            "items": items,
+        }
+
+    def review_answer(self, exam_id: int, answer_id: int, is_correct: bool, comment: str) -> dict:
+        """教师改判：校验作答属于该考试；落 is_correct/备注，清 review_needed。"""
+        self._get(exam_id)
+        answer = self.db.get(StudentAnswer, answer_id)
+        if answer is None or answer.exam_id != exam_id:
+            raise NotFoundError()
+        answer.is_correct = bool(is_correct)
+        answer.review_comment = comment
+        answer.review_needed = False
+        answer.reviewed_at = datetime.datetime.utcnow()
+        self.db.flush()
+        return {
+            "answer_id": answer.id,
+            "exam_id": exam_id,
+            "is_correct": answer.is_correct,
+            "review_needed": False,
+            "review_comment": answer.review_comment,
+        }
+
     def list_exams(self, page: int = 1, page_size: int = 20) -> dict:
         """分页列出考试概要（id 倒序，含班级名/题目数/考试日期）。"""
         query = self.db.query(ExamRecord)

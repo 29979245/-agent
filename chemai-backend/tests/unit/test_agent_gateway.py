@@ -68,6 +68,15 @@ def test_keyword_chat_default():
     assert result.tools == []
 
 
+def test_keyword_chat_wrong_questions_self_service():
+    """学生自助：查看我的错题/复习任务/学情 → chat + 3 个自助工具（缺省解析本人）。"""
+    result = keyword_classify("查看我的错题")
+    assert result.type == "chat"
+    assert result.tools == ["show_my_wrong_questions", "show_my_review_tasks", "show_my_report"]
+    assert keyword_classify("我的复习任务").tools == ["show_my_wrong_questions", "show_my_review_tasks", "show_my_report"]
+    assert "show_my_wrong_questions" in keyword_classify("错题本里有什么").tools
+
+
 # ---------------------------------------------------------------- LLM 优先
 
 def test_llm_result_priority():
@@ -94,6 +103,19 @@ def test_llm_unparseable_degrades_to_keyword():
     assert r.source == "keyword"
     assert r.type == "navigate"
     assert r.page == PAGE_STUDENTS
+
+
+def test_llm_prose_wrong_questions_degrades_to_self_service():
+    """真实复现：LLM 返回散文（含幻觉 navigate 片段）→ 拒绝 → 关键词兜底 → chat + 3 自助工具。"""
+    prose = ("我目前无法直接查看你的错题记录，因为没有存储你的个人数据。"
+             "不过，你可以将错题内容发给我，我会帮你分析错误原因。"
+             '例如 {"type": "navigate", "page": "my_wrong_questions"} 这样的请求。')
+    llm = _FakeLLM(result=prose)
+    import asyncio
+    r = asyncio.run(classify_intent("查看我的错题", llm=llm))
+    assert r.source == "keyword"
+    assert r.type == "chat"
+    assert r.tools == ["show_my_wrong_questions", "show_my_review_tasks", "show_my_report"]
 
 
 def test_no_llm_uses_keyword_only():
@@ -137,6 +159,19 @@ def test_parse_intent_invalid_returns_none():
     assert _parse_intent("not json") is None
     assert _parse_intent('{"type": "bogus"}') is None
     assert _parse_intent('{"tools": ["x"]}') is None  # 缺 type
+
+
+def test_parse_intent_rejects_hallucinated_navigate_page():
+    """LLM 散文里幻觉出 `{"type":"navigate","page":"my_wrong_questions"}` → 拒绝，降级关键词。"""
+    prose = ("我无法直接查看你的错题记录，因为没有存储你的个人数据。"
+             '请提供题目，例如 {"type": "navigate", "page": "my_wrong_questions"} 这样的描述。')
+    assert _parse_intent(prose) is None
+
+
+def test_parse_intent_navigate_requires_valid_page():
+    assert _parse_intent('{"type": "navigate", "page": ""}') is None
+    assert _parse_intent('{"type": "navigate"}') is None
+    assert _parse_intent('{"type": "navigate", "page": "exam-v2"}').page == "exam-v2"
 
 
 # ---------------------------------------------------------------- 图片消息 / 快捷路径

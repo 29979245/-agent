@@ -26,6 +26,10 @@ PAGE_PARENT = "parent"        # 家长端
 # doc 30 §6.2：视觉/图片消息关键字（走视觉 Provider）
 IMAGE_KEYWORDS = ("图片", "照片", "图像", "拍照", "OCR", "识别", "上传", "扫描", "截图")
 
+# navigate 合法页面标识（§6.2）；LLM 返回的 page 不在集合内 → 拒绝解析降级关键词
+# （防御 LLM 未遵循「仅返回 JSON」时，从散文里抠出幻觉 `{"type":"navigate","page":...}` 片段）
+VALID_NAVIGATE_PAGES = {PAGE_EXAM, PAGE_STUDENTS, PAGE_DIAGNOSIS, PAGE_TEACHER, PAGE_PARENT}
+
 CLASSIFY_SYSTEM_PROMPT = """你是 ChemAI 的意图分类器。判断用户消息属于「需要调用工具」（chat）还是「纯页面跳转」（navigate）。
 
 规则：
@@ -49,6 +53,8 @@ KEYWORD_RULES: list[tuple[tuple[str, ...], str, list[str], Optional[str]]] = [
     (("去首页", "回到首页", "返回首页", "教师首页"), "navigate", [], PAGE_TEACHER),
     (("打开家长端", "家长页面"), "navigate", [], PAGE_PARENT),
     # --- chat：工具推荐 ---
+    # 错题自助规则须在「题」生成规则之前（"错题"含"题"，按首条命中，先配更具体意图）
+    (("错题", "错题本", "复习任务", "复习中心", "我的错题"), "chat", ["show_my_wrong_questions", "show_my_review_tasks", "show_my_report"], None),
     (("出", "题", "生成题目", "编题"), "chat", ["generate_questions", "show_exam_workbench", "search_exam_bank"], None),
     (("班", "学生", "名单"), "chat", ["show_students", "diagnose_barrier"], None),
     (("诊断", "学情", "薄弱", "障碍", "分析一下"), "chat", ["diagnose_barrier"], None),
@@ -109,6 +115,9 @@ def _parse_intent(raw: Any) -> Optional[IntentResult]:
     tools = obj.get("tools") or []
     tools = [t for t in tools if isinstance(t, str)][:3]
     page = obj.get("page") or None
+    # navigate 必须带合法页面标识；否则拒绝（防 LLM 散文里幻觉出的 navigate 片段 → 降级关键词）
+    if kind == "navigate" and (page is None or page not in VALID_NAVIGATE_PAGES):
+        return None
     return IntentResult(type=kind, tools=tools, page=page, source="llm")
 
 

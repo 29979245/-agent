@@ -142,7 +142,7 @@
         '当前账号：' + (ROLE_LABEL[user.role] || user.role || '未登录');
 
       var goHome = document.getElementById('goHome');
-      goHome.href = isStudent ? 'practice.html' : 'exam-v2.html';
+      goHome.href = isStudent ? 'ai-tutor.html' : 'exam-v2.html';
       goHome.textContent = isStudent ? '返回学生端' : '返回教师端';
 
       document.getElementById('logoutBtn').addEventListener('click', function () {

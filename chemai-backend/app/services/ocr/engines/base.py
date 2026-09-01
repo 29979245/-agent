@@ -25,11 +25,16 @@ class OCRDocument:
 
 @dataclass
 class OCRResult:
-    """结构化识别结果。partial=True 表示部分/低置信度结果（前端可见）。"""
+    """结构化识别结果。partial=True 表示部分/低置信度结果（前端可见）。
+
+    text 为原始识别文本（答题卡按行拼合 / 题目图片即题面），供题目导入预览等场景使用；
+    批改判卷线只用 student_no/name/answers，text 属追加字段不影响其逻辑。
+    """
 
     student_no: str = "unknown"
     student_name: str = "待识别"
     answers: list[dict] = field(default_factory=list)  # [{"question_no": int, "answer": str}]
+    text: str = ""
     provider: str = ""
     confidence: float = 0.0
     partial: bool = False

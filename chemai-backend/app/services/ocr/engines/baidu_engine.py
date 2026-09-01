@@ -106,6 +106,8 @@ class BaiduOCREngine:
             student_no=student_no,
             student_name=student_name,
             answers=answers,
+            # 原始识别文本（题目导入预览用）：doc_analysis 按行返回，保留换行便于前端排版
+            text="\n".join(lines),
             provider=self.name,
             confidence=0.9,
         )

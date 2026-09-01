@@ -4,6 +4,7 @@
 Mock 客户端评审调用、Fallback 链失败路径。
 """
 import pytest
+from app.agents.factories.model_factory import ProviderError
 
 from app.config import settings
 from app.services.audit.review import (
@@ -207,9 +208,36 @@ def test_review_question_empty_response_raises():
 # ---- Fallback 链 ----
 
 
-def test_fallback_client_requires_api_key():
+def test_fallback_client_delegates_to_llmclient(monkeypatch):
+    # 委托 model_factory.LLMClient.complete_chain（真 HTTP + 熔断/回退）
+    calls = {"n": 0}
+
+    class RecordingLLM:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def complete_chain(self, messages):
+            calls["n"] += 1
+            return '{"scientificity": 90, "difficulty": 80, "knowledge": 85, "discrimination": 75}'
+
+    monkeypatch.setattr("app.services.audit.review.LLMClient", RecordingLLM)
     client = FallbackReviewLLMClient()
-    with pytest.raises(ReviewLLMError):
+    text = client.complete([{"role": "user", "content": "hi"}])
+    assert "scientificity" in text
+    assert calls["n"] == 1
+
+
+def test_fallback_client_wraps_provider_error(monkeypatch):
+    class FailingLLM:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def complete_chain(self, messages):
+            raise ProviderError("deepseek", "连接超时", status_code=503)
+
+    monkeypatch.setattr("app.services.audit.review.LLMClient", FailingLLM)
+    client = FallbackReviewLLMClient()
+    with pytest.raises(ReviewLLMError, match="deepseek"):
         client.complete([{"role": "user", "content": "hi"}])
 
 

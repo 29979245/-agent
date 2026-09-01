@@ -14,9 +14,6 @@
       .filter(Boolean);
   };
 
-  const SAMPLE_AI_CONTENT =
-    '配平并判断反应：$\\ce{2H2 + O2 -> 2H2O}$，该反应属于哪种基本反应类型？';
-
   const STATUS_TEXT = {
     passed: '通过',
     warning: '警告',
@@ -81,25 +78,28 @@
     return sanitizeHtml(s.replace(/\n/g, '<br>'));
   }
 
-  // 组装展示卡片：提交载荷 + 后端响应（generate 不返回内容，需用载荷补全）
-  function makeCard(payload, resp) {
-    const report = (resp && resp.audit_report) || {};
+  // 组装批量生成卡片：后端批量响应每道题已含完整字段 + audit_report
+  function makeBatchCard(payload, item, extra) {
+    const report = (item && item.audit_report) || {};
+    const kps = Array.isArray(item.knowledge_points)
+      ? item.knowledge_points.join(',')
+      : item.knowledge_points || '';
     return {
-      question_id: resp && resp.question_id,
-      content: payload.content || '',
-      options: payload.options || [],
-      answer: payload.answer || '',
-      analysis: payload.analysis || '',
-      knowledge_points: payload.knowledge_points || '',
-      difficulty: payload.difficulty || 'medium',
-      source: payload.source,
+      question_id: item.question_id,
+      content: item.content || '',
+      options: item.options || [],
+      answer: item.answer || '',
+      analysis: item.analysis || '',
+      knowledge_points: kps || payload.knowledge_points.join(','),
+      difficulty: item.difficulty || payload.difficulty || 'medium',
+      source: 'ai',
       audit_report: report,
-      overall_status: (resp && resp.overall_status) || report.overall_status || 'passed',
-      generation_failed: !!(resp && resp.generation_failed),
+      overall_status: item.overall_status || item.audit_status || report.overall_status || 'passed',
+      generation_failed: false,
       approved: false,
       review_flag: false,
-      trap_note: '',
-      source_label: '',
+      trap_note: deriveTrap(report),
+      source_label: (extra && extra.source_label) || '',
     };
   }
 
@@ -186,8 +186,11 @@
           types: [],
           difficulty: 'medium',
           kps: [],
-          content: SAMPLE_AI_CONTENT,
+          quantity: 3,
+          extra: '',
+          blueprint: '',
           source_label: '',
+          variant_ref: '',
         },
         manual: {
           content: '',
@@ -197,7 +200,7 @@
           kps: '',
           difficulty: 'medium',
         },
-        ocr: { fileName: '', previewUrl: '' },
+        ocr: { fileName: '', previewUrl: '', file: null, result: null },
         knowledge: [],
         questions: [],
         generating: false,
@@ -236,6 +239,7 @@
         editHist: { query: '', results: [], selected: [] },
         exportModal: { show: false, exam: null, format: 'docx', with_answers: false },
         resultsModal: { show: false, exam: null, data: null },
+        reviewModal: { show: false, exam: null, items: [], loading: false, comment: {}, busy: {} },
         picker: { show: false, ids: [], refs: [], exams: [] },
         // modal + toast
         regen: { show: false, question: null, content: '', answer: '', analysis: '', knowledge_points: '' },
@@ -314,41 +318,90 @@
       handleOcrFile(e) {
         const file = e.target.files && e.target.files[0];
         if (!file) return;
+        this.ocr.file = file;
         this.ocr.fileName = file.name;
+        if (this.ocr.previewUrl) URL.revokeObjectURL(this.ocr.previewUrl);
         this.ocr.previewUrl = URL.createObjectURL(file);
+        // 换图后旧识别草稿失效，需重新识别
+        this.ocr.result = null;
       },
 
-      async doGenerate(payload, extra) {
+      async doImport(payload, sourceLabel) {
         this.generating = true;
         try {
-          const resp = await window.ChemAPI.generate(payload);
-          const card = makeCard(payload, resp);
-          if (extra && extra.source_label) card.source_label = extra.source_label;
-          card.trap_note = deriveTrap(card.audit_report);
+          const resp = await window.ChemAPI.importQuestion(payload);
+          const report = (resp && resp.audit_report) || {};
+          const kps = Array.isArray(payload.knowledge_points)
+            ? payload.knowledge_points.join(',')
+            : payload.knowledge_points || '';
+          const card = {
+            question_id: resp && resp.question_id,
+            content: payload.content,
+            options: payload.options || [],
+            answer: payload.answer || '',
+            analysis: payload.analysis || '',
+            knowledge_points: kps,
+            difficulty: payload.difficulty || 'medium',
+            source: payload.source,
+            audit_report: report,
+            overall_status: (resp && resp.overall_status) || report.overall_status || 'passed',
+            generation_failed: false,
+            approved: false,
+            review_flag: false,
+            trap_note: deriveTrap(report),
+            source_label: sourceLabel || '',
+          };
           this.questions.unshift(card);
-          this.toast('出题完成：' + (STATUS_TEXT[card.overall_status] || card.overall_status), false);
+          this.toast('已录入：' + (STATUS_TEXT[card.overall_status] || card.overall_status), false);
+          return true;
         } catch (err) {
-          this.toast((err && err.message) || '出题失败', true);
+          this.toast((err && err.message) || '录入失败', true);
+          return false;
         } finally {
           this.generating = false;
         }
       },
       async aiGenerate() {
-        if (!this.ai.content.trim()) {
-          this.toast('请填写题目内容', true);
+        if (!this.ai.kps.length) {
+          this.toast('请先选择知识点', true);
           return;
         }
+        const questionTypes = this.ai.types.length
+          ? this.ai.types.map((t) => (t === 'infer' ? 'inference' : t))
+          : ['choice'];
         const payload = {
-          content: this.ai.content,
-          options: [],
-          answer: '',
-          analysis: '',
-          knowledge_points: this.ai.kps.join(','),
+          knowledge_points: this.ai.kps.slice(),
           difficulty: this.ai.difficulty,
-          source: 'ai',
+          quantity: this.ai.quantity || 1,
+          question_types: questionTypes,
+          extra_requirements: this.ai.extra,
         };
-        await this.doGenerate(payload, { source_label: this.ai.source_label });
+        if (this.ai.variant_ref) {
+          payload.variant_qid = this.ai.variant_ref;
+          payload.variant_source = 'historical';
+        }
+        this.generating = true;
+        try {
+          const resp = await window.ChemAPI.generate(payload);
+          const cards = (resp.questions || []).map(
+            (item) => makeBatchCard(payload, item, { source_label: this.ai.source_label })
+          );
+          if (cards.length) this.questions.unshift(...cards);
+          const total = resp.total_available || 0;
+          this.toast(
+            '已生成 ' + (resp.generated_count || cards.length) + ' 道题'
+              + (total ? '（题库匹配 ' + total + ' 道）' : ''),
+            false
+          );
+        } catch (err) {
+          this.toast((err && err.message) || '出题失败', true);
+        } finally {
+          this.generating = false;
+        }
         if (this.ai.source_label) this.ai.source_label = '';
+        if (this.ai.variant_ref) this.ai.variant_ref = '';
+        this.ai.blueprint = '';
+        this.ai.extra = '';
       },
       async manualAdd() {
         if (!this.manual.content.trim()) {
@@ -368,24 +421,55 @@
           difficulty: this.manual.difficulty,
           source: 'manual',
         };
-        await this.doGenerate(payload);
+        await this.doImport(payload);
       },
       async ocrRecognize() {
-        if (!this.ocr.fileName) {
+        if (!this.ocr.file) {
           this.toast('请先上传题目图片', true);
           return;
         }
-        // 演示：模拟识别出一道含方程式的题目，source=ocr 只过方程式级硬闸
-        const payload = {
-          content: '识别题目：配平化学方程式 $\\ce{2H2 + O2 -> 2H2O}$',
-          options: [],
-          answer: '',
-          analysis: '',
-          knowledge_points: '配平与计算',
-          difficulty: 'medium',
-          source: 'ocr',
-        };
-        await this.doGenerate(payload);
+        this.generating = true;
+        try {
+          const resp = await window.ChemAPI.ocrRecognizeImage(this.ocr.file);
+          if (resp.partial || !(resp.text || '').trim()) {
+            this.toast('识别为空或置信度低，请换更清晰图片或改用手动录入', true);
+            return;
+          }
+          this.ocr.result = {
+            content: resp.text.trim(),
+            options: [],
+            optionsText: '',
+            answer: '',
+            analysis: '',
+            knowledge_points: '',
+            difficulty: 'medium',
+            source: 'ocr',
+            provider: resp.provider,
+            degraded: resp.degraded,
+          };
+          this.toast('识别完成，请核对并编辑后确认导入', false);
+        } catch (err) {
+          this.toast((err && err.message) || '识别失败', true);
+        } finally {
+          this.generating = false;
+        }
+      },
+      // OCR 识别草稿 → 确认入库：题面可编辑（选项按行拆分），source=ocr 只过方程式级审核
+      async confirmOcrImport() {
+        const r = this.ocr.result;
+        if (!r || !r.content.trim()) {
+          this.toast('题干为空，请填写后确认导入', true);
+          return;
+        }
+        r.options = r.optionsText
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const ok = await this.doImport(r);
+        if (ok) this.ocr.result = null;
+      },
+      clearOcrResult() {
+        this.ocr.result = null;
       },
 
       // ---- 卡片操作 ----
@@ -619,8 +703,18 @@
       addVariantFromHistory(h) {
         this.mode = 'ai';
         this.ai.source_label = '基于 ' + h.paper + ' 变体生成';
+        this.ai.blueprint = h.content || '';
+        this.ai.kps = Array.isArray(h.knowledge_points) ? h.knowledge_points.slice() : [];
+        this.ai.difficulty = h.difficulty || 'medium';
+        this.ai.variant_ref = h.ref_id || '';
         this.tab = 'workbench';
-        this.toast('已设为变体蓝本，回到「出题工作台」生成变体题', false);
+        this.toast('已设为变体蓝本：可改难度/知识点/额外要求后点「生成变体」', false);
+      },
+      clearVariant() {
+        this.ai.variant_ref = '';
+        this.ai.source_label = '';
+        this.ai.blueprint = '';
+        this.ai.quantity = 3;
       },
       addHistoryToExam(h) {
         this.openPicker({ refs: [h.ref_id] });
@@ -709,6 +803,7 @@
             { key: 'export', label: '导出' },
           ],
           grading: [
+            { key: 'review', label: '人工复核' },
             { key: 'finalize', label: '完成统计' },
             { key: 'export', label: '导出' },
           ],
@@ -736,6 +831,10 @@
           }
           if (key === 'results') {
             await this.openResults(exam);
+            return;
+          }
+          if (key === 'review') {
+            await this.openReview(exam);
             return;
           }
           if (key === 'delete') {
@@ -878,6 +977,37 @@
           this.resultsModal.data = d;
         } catch (err) {
           this.toast((err && err.message) || '加载结果失败', true);
+        }
+      },
+
+      // ---- 人工复核（阅卷中） ----
+      async openReview(exam) {
+        this.reviewModal = { show: true, exam, items: [], loading: true, comment: {}, busy: {} };
+        try {
+          const d = await window.ChemAPI.getExamReviews(exam.exam_id);
+          this.reviewModal.items = (d && d.items) || [];
+        } catch (err) {
+          this.toast((err && err.message) || '加载复核清单失败', true);
+        } finally {
+          this.reviewModal.loading = false;
+        }
+      },
+      async markAnswer(item, isCorrect) {
+        const aid = item.answer_id;
+        if (this.reviewModal.busy[aid]) return;
+        this.reviewModal.busy[aid] = true;
+        try {
+          await window.ChemAPI.reviewExamAnswer(this.reviewModal.exam.exam_id, aid, {
+            is_correct: isCorrect,
+            comment: (this.reviewModal.comment[aid] || '').trim(),
+          });
+          this.toast(isCorrect ? '已判对' : '已判错', false);
+          const d = await window.ChemAPI.getExamReviews(this.reviewModal.exam.exam_id);
+          this.reviewModal.items = (d && d.items) || [];
+        } catch (err) {
+          this.toast((err && err.message) || '判定保存失败', true);
+        } finally {
+          delete this.reviewModal.busy[aid];
         }
       },
       pct(v) {

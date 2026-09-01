@@ -105,7 +105,8 @@
       };
       const CHIPS = ['帮我讲解这个知识点', '配平这个方程式', '做几道练习题', '查看我的错题', '总结今天学习'];
 
-      let threadId = 'conv_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+      const THREAD_KEY = 'chemai_ai_tutor_thread';
+      let threadId = localStorage.getItem(THREAD_KEY) || '';
       let busy = false;
       let curAiText = '';
       let lastText = '';
@@ -123,16 +124,21 @@
       function openDrawer() { mask.classList.add('show'); drawer.classList.add('open'); }
       function closeDrawer() { drawer.classList.remove('open'); mask.classList.remove('show'); }
       $('menuBtn').addEventListener('click', () => {
-        if (drawer.classList.contains('open')) closeDrawer(); else openDrawer();
+        if (drawer.classList.contains('open')) closeDrawer();
+        else { openDrawer(); loadHistoryList(); }
       });
       mask.addEventListener('click', closeDrawer);
       $('logoutBtn').addEventListener('click', () => {
         window.ChemAuth.logout();
         location.href = 'student-login.html';
       });
-      $('historyList').addEventListener('click', () => {
+      // 历史列表：点击条目切换会话（后端按 `{user_id}:{thread_id}` 隔离，跨用户 403）
+      $('historyList').addEventListener('click', (e) => {
+        const item = e.target.closest('.history-item');
         closeDrawer();
-        SA.toast('对话记录即将上线');
+        if (!item) return;
+        const tid = item.getAttribute('data-tid');
+        if (tid && tid !== threadId) loadThread(tid);
       });
 
       // 快捷芯片
@@ -554,8 +560,81 @@
         toolArgsBuffers = {};
         lockInput(false);
         threadId = 'conv_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+        persistThreadId();
         chat.innerHTML = '';
         addWelcome();
+      }
+
+      // ---- 会话跨 tab 持久化 + 历史回放 ----
+      function persistThreadId() {
+        try { localStorage.setItem(THREAD_KEY, threadId); } catch (err) { /* 存储不可用则忽略 */ }
+      }
+      function fmtThreadTime(ms) {
+        if (!ms) return '';
+        const d = new Date(ms);
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
+        if (d.toDateString() === now.toDateString()) return '今天 ' + hm;
+        const y = new Date(now); y.setDate(now.getDate() - 1);
+        if (d.toDateString() === y.toDateString()) return '昨天 ' + hm;
+        return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+      }
+      function renderHistoryList(items) {
+        const el = $('historyList');
+        if (!items.length) {
+          el.innerHTML = '<div class="history-item"><div class="history-title">暂无历史对话</div></div>';
+          return;
+        }
+        el.innerHTML = items.map((t) => {
+          const active = t.thread_id === threadId ? ' active' : '';
+          return '<div class="history-item' + active + '" data-tid="' + SA.escapeHtml(t.thread_id) + '">' +
+            '<div class="history-title">' + SA.escapeHtml(t.title || '新对话') + '</div>' +
+            '<div class="history-time">' + SA.escapeHtml(fmtThreadTime(t.created_ms)) + '</div>' +
+            '</div>';
+        }).join('');
+      }
+      function loadHistoryList() {
+        A.agentThreads().then((data) => {
+          renderHistoryList((data && data.threads) || []);
+        }).catch(() => {
+          renderHistoryList([]);
+        });
+      }
+      async function loadThread(tid) {
+        if (currentChat) currentChat.cancel();
+        currentChat = null;
+        busy = false;
+        threadId = tid;
+        persistThreadId();
+        curAiText = '';
+        lastText = '';
+        lastPhase = '';
+        pendingApproval = null;
+        aiElRef = null;
+        toolArgsBuffers = {};
+        lockInput(false);
+        chat.innerHTML = '';
+        let messages = [];
+        try {
+          const data = await A.agentThreadMessages(tid);
+          messages = (data && data.messages) || [];
+        } catch (err) {
+          addWelcome();
+          return;
+        }
+        if (!messages.length) { addWelcome(); return; }
+        messages.forEach((m) => {
+          if (m.role === 'user') {
+            appendUser(m.content);
+          } else if (m.role === 'assistant' && String(m.content || '').trim()) {
+            curAiText = m.content;
+            newAiBubble();
+            renderAi(aiElRef);
+          }
+        });
+        curAiText = '';
+        scrollChat();
       }
 
       $('sendBtn').addEventListener('click', () => send(input.value));
@@ -577,7 +656,13 @@
         .catch(() => {
           $('drawerClass').textContent = '学号 ' + (SA.studentId() || '—');
         });
-      addWelcome();
+      if (threadId) {
+        loadThread(threadId);  // 恢复上次会话（跨 tab 持久化）
+      } else {
+        threadId = 'conv_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+        persistThreadId();
+        addWelcome();
+      }
       input.focus();
     })();
   </script>

@@ -147,6 +147,11 @@ class StudentAnswer(Base):
     answer_text: Mapped[str] = mapped_column(String(2000), default="")
     is_correct: Mapped[bool] = mapped_column(default=False)
     answered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 主观题人工复核（LLM 判不出标 review_needed，教师逐题改判清 flag）
+    review_needed: Mapped[bool] = mapped_column(default=False)
+    review_reason: Mapped[str] = mapped_column(String(500), default="")  # LLM 判定失败原因
+    review_comment: Mapped[str] = mapped_column(String(500), default="")  # 教师改判备注
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     barrier_type: Mapped[BarrierType | None] = mapped_column(
         DbEnum(BarrierType), nullable=True
     )

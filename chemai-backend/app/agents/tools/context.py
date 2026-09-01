@@ -10,6 +10,7 @@ from typing import Any, Callable, Optional
 from sqlalchemy.orm import Session
 
 from app.agents.guard import GuardState
+from app.db.models import Account
 
 
 @dataclass
@@ -63,3 +64,16 @@ def user_school_id(ctx: ToolContext) -> int | None:
     if isinstance(user, dict):
         return user.get("school_id")
     return getattr(user, "school_id", None)
+
+
+def self_student_id(ctx: ToolContext) -> int | None:
+    """当前登录学生自身 id（Account.role_id → Student.id）；非 student 角色/查不到返回 None。
+
+    身份链：user_id = Account.id → Account.role_id = Student.id（学生自助工具默认值来源）。
+    """
+    if user_role(ctx) != "student" or ctx.db is None:
+        return None
+    account = ctx.db.get(Account, user_id(ctx))
+    if account is None or account.role_id is None:
+        return None
+    return int(account.role_id)

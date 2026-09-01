@@ -55,6 +55,8 @@ def parse_vlm_result(text: str) -> OCRResult:
         student_no=str(data.get("student_no") or "unknown"),
         student_name=str(data.get("student_name") or "待识别"),
         answers=answers,
+        # 降级路径的原始文本：保留 LLM 原始响应，题目导入预览至少可人工校对
+        text=text,
         provider="vlm",
         confidence=0.7,
         degraded=True,

@@ -136,11 +136,12 @@
   }
 
   // SSE 流解析：按空行切分事件块，解析 event:/data: 行（data 可多行合并，容错 \r\n）
-  async function parseSSE(body, { onEvent }) {
+  async function parseSSE(body, { onEvent, onActivity }) {
     const reader = body.getReader();
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
     const emitBlock = (block) => {
+      if (onActivity) onActivity(block);  // 每收到一块数据即触发（含心跳注释）：看门狗据此续命
       let event = '';
       const dataLines = [];
       block.split('\n').forEach((line) => {
@@ -221,6 +222,15 @@
     generate(payload) {
       return request('/api/question/generate', { method: 'POST', body: payload });
     },
+    importQuestion(payload) {
+      return request('/api/question/import', { method: 'POST', body: payload });
+    },
+    // 题目图片识别：上传 → 返回题面文本，供可编辑预览（保存仍走 /import）
+    ocrRecognizeImage(file) {
+      const formData = new FormData();
+      formData.append('file', file);
+      return requestMultipart('/api/question/ocr-recognize', formData);
+    },
     approve(questionId) {
       return request('/api/question/' + questionId + '/approve', { method: 'POST' });
     },
@@ -291,6 +301,26 @@
     getStudentDetail(classId, studentId) {
       return request('/api/panel/class/' + classId + '/student/' + studentId);
     },
+    sendStudentNotification(studentId, content) {
+      return request('/api/panel/student/' + studentId + '/notify', {
+        method: 'POST',
+        body: { content },
+      });
+    },
+
+    // ---- 学习计划（/api/diagnosis/learning-plan）----
+    generateLearningPlan(studentId) {
+      return request('/api/diagnosis/learning-plan/generate', {
+        method: 'POST',
+        body: { student_id: studentId },
+      });
+    },
+    applyLearningPlan(studentId, plan) {
+      return request('/api/diagnosis/learning-plan/apply/' + studentId, {
+        method: 'POST',
+        body: { plan },
+      });
+    },
 
     // ---- 考试生命周期（/api/exam）----
     getExams(query) {
@@ -325,6 +355,15 @@
     },
     getExamResults(examId) {
       return request('/api/exam/' + examId + '/results');
+    },
+    getExamReviews(examId) {
+      return request('/api/exam/' + examId + '/reviews');
+    },
+    reviewExamAnswer(examId, answerId, payload) {
+      return request('/api/exam/' + examId + '/answers/' + answerId + '/review', {
+        method: 'POST',
+        body: payload,
+      });
     },
     deleteExam(examId) {
       return request('/api/exam/' + examId, { method: 'DELETE' });
@@ -367,9 +406,6 @@
     studentPracticeTasks(studentId) {
       return request('/api/practice/student/' + studentId + '/tasks');
     },
-    generatePractice() {
-      return request('/api/practice/generate', { method: 'POST' });
-    },
     studentPracticeSubmit(practiceId, answers) {
       return request('/api/practice/submit', {
         method: 'POST',
@@ -378,6 +414,17 @@
     },
     studentEffect(studentId) {
       return request('/api/practice/effect/' + studentId);
+    },
+
+    // ---- 学生在线作答班级考试（/api/exam/mine + /api/exam/{id}/submit）----
+    studentExams() {
+      return request('/api/exam/mine');
+    },
+    examSubmit(examId, answers) {
+      return request('/api/exam/' + examId + '/submit', {
+        method: 'POST',
+        body: { answers },
+      });
     },
 
     // ---- 学生复习（/api/review）----
@@ -468,11 +515,12 @@
     // onPause：流在 awaiting_approval 后干净关闭（无 done 无 error）→ 审批暂停，区别于断连（D13/11.4）。
     // onToolArgs(d)：流式 Provider 的 tool_args delta，按 tool_call_id 累积（8.1）。
     _consumeAgentSse(resp, controller, handlers) {
-      const { onPhase, onText, onToolCall, onToolArgs, onToolResult, onDone, onPause, onError } = handlers;
+      const { onPhase, onText, onToolCall, onToolArgs, onToolResult, onDone, onPause, onError, onActivity } = handlers;
       let doneReceived = false;
       let errored = false;  // SSE error 事件已回传，避免循环后重复触发"连接中断"
       let paused = false;   // 最后 phase=awaiting_approval → 审批暂停
       return parseSSE(resp.body, {
+        onActivity,
         onEvent: (eventName, dataText) => {
           let dataObj = {};
           try { dataObj = JSON.parse(dataText); } catch (err) { dataObj = { content: dataText }; }
@@ -576,6 +624,14 @@
       const cancel = () => controller.abort();
       const promise = this._postAgentSse('/api/agent/approval/resume', payload, controller, handlers);
       return { cancel, done: promise };
+    },
+
+    // ---- 会话历史（/api/agent/threads）----
+    agentThreads() {
+      return request('/api/agent/threads');
+    },
+    agentThreadMessages(threadId) {
+      return request('/api/agent/threads/' + encodeURIComponent(threadId) + '/messages');
     },
   };
 })();

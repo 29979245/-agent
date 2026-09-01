@@ -5,6 +5,7 @@
 四重硬化（缺字段判无效重试、response_format 按 provider 切换）。
 """
 import pytest
+from app.agents.factories.model_factory import ProviderError
 
 from app.services.diagnosis.llm_diagnosis import (
     MAX_QUESTION_CHARS,
@@ -260,35 +261,36 @@ def test_parse_fenced_array_raises_non_object():
         parse_diagnosis_response("```json\n[1, 2, 3]\n```")
 
 
-def test_fallback_no_api_key_raises():
-    client = FallbackDiagnosisLLMClient(provider_chain=("mimo",), retries=1)
-    with pytest.raises(DiagnosisLLMError):
-        client.complete([{"role": "user", "content": "hi"}])
-    assert client.available is False or client.available is True
-
-
-def test_chat_transport_unwired_raises(monkeypatch):
-    # 配置了 llm_api_key 但 HTTP 传输尚未接入 → 报错（覆盖 241）
-    from app.config import settings
-    from app.services.diagnosis.llm_diagnosis import _chat
-    monkeypatch.setattr(settings, "llm_api_key", "test-key")
-    with pytest.raises(DiagnosisLLMError, match="尚未接入"):
-        _chat("qwen", [{"role": "user", "content": "hi"}])
-
-
-def test_fallback_retries_each_provider_then_raises(monkeypatch):
+def test_complete_delegates_to_llmclient(monkeypatch):
+    # 委托 model_factory.LLMClient.complete_chain（真 HTTP + 熔断/回退），Provider 错误包装为 DiagnosisLLMError
     calls = {"n": 0}
 
-    def fake_chat(provider, messages):
-        calls["n"] += 1
-        raise DiagnosisLLMError(f"provider {provider} 失败")
+    class RecordingLLM:
+        def __init__(self, *args, **kwargs):
+            pass
 
-    monkeypatch.setattr("app.services.diagnosis.llm_diagnosis._chat", fake_chat)
-    monkeypatch.setattr("app.services.diagnosis.llm_diagnosis.time.sleep", lambda s: None)
-    client = FallbackDiagnosisLLMClient(provider_chain=("mimo", "qwen"), retries=2)
-    with pytest.raises(DiagnosisLLMError):
+        def complete_chain(self, messages):
+            calls["n"] += 1
+            return VALID
+
+    monkeypatch.setattr("app.services.diagnosis.llm_diagnosis.LLMClient", RecordingLLM)
+    client = FallbackDiagnosisLLMClient()
+    assert client.complete([{"role": "user", "content": "hi"}]) == VALID
+    assert calls["n"] == 1
+
+
+def test_complete_wraps_provider_error(monkeypatch):
+    class FailingLLM:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def complete_chain(self, messages):
+            raise ProviderError("deepseek", "连接超时", status_code=503)
+
+    monkeypatch.setattr("app.services.diagnosis.llm_diagnosis.LLMClient", FailingLLM)
+    client = FallbackDiagnosisLLMClient()
+    with pytest.raises(DiagnosisLLMError, match="deepseek"):
         client.complete([{"role": "user", "content": "hi"}])
-    assert calls["n"] == 4  # 2 provider × 2 次重试
 
 
 def test_available_reflects_api_key():

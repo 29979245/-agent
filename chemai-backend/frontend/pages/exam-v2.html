@@ -186,6 +186,10 @@
     .b-warning { background: var(--warn-bg); color: var(--warn-text); }
     .b-blocked { background: var(--block-bg); color: var(--block-text); }
     .q-content { font-size: 14px; line-height: 1.7; margin: 0 0 6px; }
+    .variant-banner { background: var(--warn-bg); border: 1px dashed #d4a017; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; }
+    .variant-banner-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .variant-banner .q-content { margin: 0; color: var(--oxford); }
+    .variant-clear { height: 26px; padding: 0 10px; font-size: 12px; }
     .q-options { list-style: none; padding: 0; margin: 0 0 6px; }
     .q-options li { font-size: 13px; padding: 2px 0; }
     .q-answer { font-size: 13px; color: var(--pass-text); margin-bottom: 4px; }
@@ -299,8 +303,10 @@
       </span>
       <span class="brand">智辅化学<small>考试工作台 · Exam Workbench</small></span>
       <nav class="header-nav">
+        <a class="header-link" href="ai-assistant.html">AI助手</a>
         <a class="header-link" href="panel.html">学情面板</a>
         <a class="header-link" href="students.html">学生管理</a>
+        <a class="header-link" href="ocr.html">OCR批改</a>
       </nav>
       <div class="user">
         <div>{{ user.name || '教师' }}</div>
@@ -327,6 +333,14 @@
 
         <!-- AI 生成 -->
         <div class="card" v-show="mode === 'ai'">
+          <!-- 变体蓝本横幅（方案甲：生成前只读预览） -->
+          <div class="variant-banner" v-if="ai.variant_ref">
+            <div class="variant-banner-head">
+              <span class="src-tag">{{ ai.source_label || '变体生成' }}</span>
+              <button class="btn-outline variant-clear" @click="clearVariant">取消变体</button>
+            </div>
+            <p class="q-content" v-katex v-html="renderMarkdown(ai.blueprint)"></p>
+          </div>
           <div class="form-grid">
             <div class="form-field">
               <label>题型（可多选）</label>
@@ -343,6 +357,10 @@
                 <option value="competition">竞赛</option>
               </select>
             </div>
+            <div class="form-field">
+              <label>生成数量</label>
+              <input type="number" v-model.number="ai.quantity" min="1" max="10" />
+            </div>
             <div class="form-field" style="grid-column: 1 / -1">
               <label>知识点检索（可多选）</label>
               <input v-model="aiKpQuery" placeholder="输入关键字筛选知识点…" />
@@ -351,12 +369,12 @@
               </div>
             </div>
             <div class="form-field" style="grid-column: 1 / -1">
-              <label>题目内容（化学式用 $\ce{...}$）</label>
-              <textarea v-model="ai.content" rows="4"></textarea>
+              <label>额外要求 / 题干约束</label>
+              <textarea v-model="ai.extra" rows="2" placeholder="如：结合生活情境出题；题干 ≤60 字；考察实验安全…"></textarea>
             </div>
           </div>
           <div style="margin-top: 12px">
-            <button class="btn-primary" :disabled="generating" @click="aiGenerate">{{ generating ? '生成中…' : 'AI 出题' }}</button>
+            <button class="btn-primary" :disabled="generating" @click="aiGenerate">{{ generating ? '生成中…' : (ai.variant_ref ? '生成变体' : 'AI 出题') }}</button>
           </div>
         </div>
 
@@ -395,19 +413,59 @@
           </div>
         </div>
 
-        <!-- OCR 导入 -->
+        <!-- OCR 导入：识别 → 可编辑预览 → 确认入库 -->
         <div class="card" v-show="mode === 'ocr'">
-          <label class="upload-zone" for="ocr-input">
-            <div v-if="!ocr.previewUrl">点击选择题目图片，识别后仅过方程式级审核</div>
-            <template v-else>
-              <img :src="ocr.previewUrl" :alt="ocr.fileName" />
-              <div style="margin-top: 6px">{{ ocr.fileName }}</div>
-            </template>
-          </label>
-          <input id="ocr-input" type="file" accept="image/*" style="display: none" @change="handleOcrFile" />
-          <div style="margin-top: 12px">
-            <button class="btn-primary" :disabled="generating" @click="ocrRecognize">{{ generating ? '识别中…' : '开始识别' }}</button>
-          </div>
+          <template v-if="!ocr.result">
+            <label class="upload-zone" for="ocr-input">
+              <div v-if="!ocr.previewUrl">点击选择题目图片，识别后仅过方程式级审核</div>
+              <template v-else>
+                <img :src="ocr.previewUrl" :alt="ocr.fileName" />
+                <div style="margin-top: 6px">{{ ocr.fileName }}</div>
+              </template>
+            </label>
+            <input id="ocr-input" type="file" accept="image/*" style="display: none" @change="handleOcrFile" />
+            <div style="margin-top: 12px">
+              <button class="btn-primary" :disabled="generating" @click="ocrRecognize">{{ generating ? '识别中…' : '开始识别' }}</button>
+            </div>
+          </template>
+          <template v-else>
+            <h3 style="margin: 0 0 12px; font-size: 15px; color: var(--oxford)">
+              {{ ocr.result.degraded ? '⚠ 降级识别（' + ocr.result.provider + '），请务必核对' : '识别结果（' + ocr.result.provider + '）' }}
+            </h3>
+            <div class="form-grid">
+              <div class="form-field" style="grid-column: 1 / -1">
+                <label>题干</label>
+                <textarea v-model="ocr.result.content" rows="4"></textarea>
+                <div v-if="ocr.result.content" class="q-content" style="margin-top: 6px" v-katex v-html="renderMarkdown(ocr.result.content)"></div>
+              </div>
+              <div class="form-field" style="grid-column: 1 / -1">
+                <label>选项（每行一个）</label>
+                <textarea v-model="ocr.result.optionsText" rows="3"></textarea>
+              </div>
+              <div class="form-field"><label>答案</label><input v-model="ocr.result.answer" /></div>
+              <div class="form-field">
+                <label>难度</label>
+                <select v-model="ocr.result.difficulty">
+                  <option value="easy">容易</option>
+                  <option value="medium">中等</option>
+                  <option value="hard">困难</option>
+                  <option value="competition">竞赛</option>
+                </select>
+              </div>
+              <div class="form-field" style="grid-column: 1 / -1">
+                <label>解析</label>
+                <textarea v-model="ocr.result.analysis" rows="3"></textarea>
+              </div>
+              <div class="form-field" style="grid-column: 1 / -1">
+                <label>知识点（逗号分隔）</label>
+                <input v-model="ocr.result.knowledge_points" />
+              </div>
+            </div>
+            <div style="margin-top: 12px; display: flex; gap: 10px">
+              <button class="btn-primary" :disabled="generating" @click="confirmOcrImport">{{ generating ? '提交中…' : '确认导入（仅方程式级审核）' }}</button>
+              <button class="btn-outline" :disabled="generating" @click="clearOcrResult">重新识别</button>
+            </div>
+          </template>
         </div>
 
         <!-- 批准入库保存目标 -->
@@ -691,6 +749,51 @@
         <div v-else class="muted">加载中…</div>
         <div style="display: flex; justify-content: flex-end; margin-top: 14px">
           <button class="btn-outline" @click="resultsModal.show = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 人工复核抽屉（阅卷中：LLM 判不出的主观题逐题改判） -->
+    <div class="modal-overlay" v-if="reviewModal.show" @click.self="reviewModal.show = false">
+      <div class="modal-box drawer">
+        <h3>人工复核 · {{ reviewModal.exam.name }}</h3>
+        <div class="report-title">
+          <span>待复核答案</span>
+          <span class="muted">{{ reviewModal.items.length }} 题</span>
+        </div>
+        <div v-if="reviewModal.loading" class="muted" style="padding: 12px 0">加载中…</div>
+        <div v-else-if="!reviewModal.items.length" class="muted" style="padding: 12px 0">暂无待复核答案</div>
+        <div v-else class="edit-qlist">
+          <div v-for="(item, idx) in reviewModal.items" :key="item.answer_id"
+               style="padding: 10px 0; border-bottom: 1px solid var(--line)">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px">
+              <strong style="font-size: 13px">#{{ idx + 1 }} {{ item.student_name }}</strong>
+              <span class="muted" style="font-size: 12px">LLM 判定：{{ item.is_correct ? '对' : '错' }}</span>
+            </div>
+            <div class="muted" style="font-size: 13px; margin-bottom: 6px" v-katex v-html="renderMarkdown(item.question_content)"></div>
+            <div class="form-grid" style="margin-bottom: 6px">
+              <div class="form-field"><label>学生答案</label>
+                <div style="font-size: 13px" v-katex v-html="renderMarkdown(item.student_answer)"></div>
+              </div>
+              <div class="form-field"><label>参考答案</label>
+                <div style="font-size: 13px" v-katex v-html="renderMarkdown(item.standard_answer)"></div>
+              </div>
+            </div>
+            <div v-if="item.review_reason" class="muted" style="font-size: 12px; margin-bottom: 8px">
+              复核原因：{{ item.review_reason }}
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px">
+              <input v-model="reviewModal.comment[item.answer_id]"
+                     placeholder="备注（可选）" style="flex: 1; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px" />
+              <button class="btn-outline" @click="markAnswer(item, true)"
+                      :disabled="reviewModal.busy[item.answer_id]">判对</button>
+              <button class="btn-danger-outline" @click="markAnswer(item, false)"
+                      :disabled="reviewModal.busy[item.answer_id]">判错</button>
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; margin-top: 14px">
+          <button class="btn-outline" @click="reviewModal.show = false">关闭</button>
         </div>
       </div>
     </div>

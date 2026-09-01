@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ Summarizer = Callable[[list[dict]], Awaitable[str]]
 
 
 def _message_text(message: dict) -> str:
-    content = message.get("content")
+    content = message.get("content") if isinstance(message, dict) else getattr(message, "content", "")
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -47,7 +47,7 @@ def _to_plain_messages(messages: list[dict]) -> list[dict]:
     """LangChain 消息与普通字典统一为 {role, content} 文本形式。"""
     out = []
     for m in messages:
-        role = m.get("role") or getattr(m, "type", "user")
+        role = m.get("role") if isinstance(m, dict) else getattr(m, "type", "user")
         if role == "human":
             role = "user"
         elif role == "ai":

@@ -217,23 +217,55 @@ def test_show_students_filter_by_barrier(db_session):
     assert out["items"][0]["name"] == "小红"
 
 
+def test_normalize_class_name_grade_prefix_preserved():
+    """固定年级词（高一/高二/高三/初一…）中的中文数字不得当班级序号转换
+    （回归：高一(3)班 曾因「一」被转换而误规范成 高13班）。"""
+    assert tools_diagnosis._normalize_class_name("高一(3)班") == "高一3班"
+    assert tools_diagnosis._normalize_class_name("高一（三）班") == "高一3班"
+    assert tools_diagnosis._normalize_class_name("高一（一）班") == "高一1班"
+    assert tools_diagnosis._normalize_class_name("初一(2)班") == "初一2班"
+    assert tools_diagnosis._normalize_class_name("高二12班") == "高二12班"
+
+
+def test_diagnose_barrier_class_name_variants_resolve(db_session):
+    """班级名写法差异（全/半角括号、中文数字）都应解析到同一班级（doc 30 §3.3）。"""
+    _, _, cls = _make_org(db_session)  # 班级名 = 高一(1)班
+    _make_student(db_session, cls, name="小明")
+    for variant in ("高一(1)班", "高一（一）班", "高一一班", "高一1班", "高一（1）班"):
+        out = run(tools_diagnosis.diagnose_barrier(_teacher_ctx(db_session), class_name=variant))
+        assert out["class_id"] == cls.id, f"班级名变体 {variant} 未解析到班级"
+        assert out["total_students"] == 1
+
+
+def test_show_students_class_name_variants_resolve(db_session):
+    _, _, cls = _make_org(db_session)
+    _make_student(db_session, cls, name="小明")
+    out = run(tools_diagnosis.show_students(_teacher_ctx(db_session), class_name="高一（一）班"))
+    assert out["mode"] == "students"
+    assert out["class_id"] == cls.id
+
+
 # ---------------- weekly_report ----------------
 
 def test_weekly_report_no_data_branch(db_session):
+    """无数据分支：report_text 返回纯文本说明，不暴露原始 JSON dict 给 Agent LLM。"""
     _, _, cls = _make_org(db_session)
     s = _make_student(db_session, cls)
     out = run(tools_diagnosis.weekly_report(_teacher_ctx(db_session, llm=FakeLLM()), student_id=s.id))
     assert out["no_data"] is True
-    assert out["report"]["summary"] == "本周暂无练习记录"
+    assert out["report_text"] == "本周暂无练习记录"
+    assert "report" not in out  # 原始 {summary,detail,advice} dict 不得进入工具结果
 
 
 def test_weekly_report_generates(db_session):
+    """有数据分支：report_text 为渲染好的自然语言段落，而非可被 LLM 复读的 JSON。"""
     _, _, cls = _make_org(db_session)
     s = _make_student(db_session, cls)
     _make_exam_answer(db_session, s, cls)
     out = run(tools_diagnosis.weekly_report(_teacher_ctx(db_session, llm=FakeLLM()), student_id=s.id))
     assert out["no_data"] is False
-    assert out["report"]["summary"] == "本周表现良好"
+    assert out["report_text"] == "本周表现良好。概念理解扎实。继续练习。"
+    assert "report" not in out
 
 
 # ---------------- assign_adaptive_practice ----------------

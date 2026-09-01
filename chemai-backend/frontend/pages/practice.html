@@ -18,7 +18,6 @@
         </button>
         <div class="title">练习</div>
         <div class="topbar-right">
-          <button class="topbar-action" id="btnGenerate" onclick="window.__generate()">生成新练习</button>
           <span id="studentName"></span>
         </div>
       </header>
@@ -26,6 +25,10 @@
         <button class="tab active" id="tabPending" onclick="showGroup('pending')">待完成</button>
         <button class="tab" id="tabCompleted" onclick="showGroup('completed')">已完成</button>
       </nav>
+      <div id="examSection" class="hidden">
+        <div class="section-title">老师发布的考试</div>
+        <div class="list" id="examList"></div>
+      </div>
       <div class="list" id="taskList"></div>
     </section>
 
@@ -75,9 +78,11 @@
 
       let tasks = [];
       let group = 'pending';
+      let mode = 'practice';   // 'practice' | 'exam'：提交/草稿按作答来源分流
+      let exams = [];          // [{ exam_id, name, question_count, submitted, status }]
       let practice = null;   // { practice_id, title, question_count }
       let questions = [];    // [{ question_id, content, options }]
-      let answers = {};      // question_id -> selected option text
+      let answers = {};      // question_id -> selected option text / 主观题答案
       let qIndex = 0;
       let results = null;    // submit 响应
       let opSeq = 0;         // 操作代际号：返回列表后使进行中的加载/提交失效
@@ -86,7 +91,8 @@
 
       function renderChemRoot(root) { SA.renderChem(root); }
 
-      function storageKey(pid) { return 'practice_answers_' + pid; }
+      // 作答草稿键：练习 practice_answers_<pid>；班级考试 exam_answers_<eid>
+      function storageKey(id) { return (mode === 'exam' ? 'exam_answers_' : 'practice_answers_') + id; }
 
       async function loadTasks() {
         if (!SA.requireStudent()) return;
@@ -103,22 +109,37 @@
         try { return JSON.parse(sessionStorage.getItem(storageKey(pid)) || '{}'); } catch (e) { return {}; }
       }
 
-      async function generate() {
-        const btn = $('btnGenerate');
-        btn.disabled = true;
-        btn.textContent = '生成中…';
+      // 老师发布的班级考试区块：待作答（published/in_progress 未提交）+ 已提交（含 completed）
+      async function loadExams() {
         try {
-          await A.generatePractice();
-          SA.toast('已生成新练习');
-          await loadTasks();
+          const data = await A.studentExams();
+          exams = (data && data.items) || [];
         } catch (err) {
-          if (!err) return;
-          if (err.status === 401) return;  // 已由 api.js 处理跳转
-          SA.toast('生成失败：' + ((err && err.message) || '请重试'));
-        } finally {
-          btn.disabled = false;
-          btn.textContent = '生成新练习';
+          exams = [];
+          if (err && err.status !== 401) SA.toast('考试加载失败：' + ((err && err.message) || '请重试'));
         }
+        renderExams();
+      }
+
+      function renderExams() {
+        const section = $('examSection');
+        const el = $('examList');
+        if (!exams.length) {
+          section.classList.add('hidden');
+          el.innerHTML = '';
+          return;
+        }
+        section.classList.remove('hidden');
+        el.innerHTML = exams.map((e) => {
+          const chips = ['<span class="chip">考试</span>', '<span class="chip">' + (e.question_count || 0) + ' 题</span>'];
+          if (e.exam_date) chips.push('<span class="chip">' + e.exam_date + '</span>');
+          const btnText = e.submitted ? '已完成' : '开始考试';
+          return '<article class="card">' +
+            '<h2 class="card-title">' + SA.escapeHtml(e.name || ('考试 #' + e.exam_id)) + '</h2>' +
+            '<div class="chips">' + chips.join('') + '</div>' +
+            '<button class="card-btn" ' + (e.submitted ? 'disabled' : '') + ' onclick="window.__startExam(' + e.exam_id + ')">' + btnText + '</button>' +
+            '</article>';
+        }).join('');
       }
 
       function renderList() {
@@ -126,10 +147,7 @@
         const list = tasks.filter((t) => t.status === group || (group === 'completed' && t.status === 'completed'));
         if (!list.length) {
           el.innerHTML = '';
-          SA.emptyState(el, group === 'pending' ? '暂无待完成练习，点「生成新练习」开始吧' : '暂无已完成的练习');
-          if (group === 'pending') {
-            el.innerHTML += '<button class="card-btn" style="margin:8px 16px;width:calc(100% - 32px)" onclick="window.__generate()">生成新练习</button>';
-          }
+          SA.emptyState(el, group === 'pending' ? '暂无待完成练习' : '暂无已完成的练习');
           return;
         }
         el.innerHTML = list.map((t) => {
@@ -167,25 +185,41 @@
         renderList();
       }
 
-      async function startPractice(pid) {
-        const t = tasks.find((x) => x.practice_id === pid);
-        if (!t || t.status === 'completed' || t.status === 'expired') return;
-        const seq = ++opSeq;
-        practice = { practice_id: pid, title: t.title };
-        const data = await A.getExamQuestions(pid);
-        if (seq !== opSeq) return;  // 加载期间已返回列表，丢弃迟到响应
-        questions = data.items || [];
-        if (!questions.length) {    // 无题不切视图，避免卡在空白答题屏
-          SA.toast('该练习暂无题目');
+      function enterAnswerView(title, items) {
+        if (!items.length) {  // 无题不切视图，避免卡在空白答题屏
+          SA.toast('暂无题目');
           return;
         }
-        answers = savedAnswers(pid);
+        questions = items;
+        answers = savedAnswers(practice.practice_id);
         qIndex = 0;
-        $('ansTitle').textContent = t.title;
+        $('ansTitle').textContent = title;
         $('view-list').classList.add('hidden');
         $('view-result').classList.add('hidden');
         $('view-answer').classList.remove('hidden');
         renderQuestion();
+      }
+
+      async function startPractice(pid) {
+        const t = tasks.find((x) => x.practice_id === pid);
+        if (!t || t.status === 'completed' || t.status === 'expired') return;
+        const seq = ++opSeq;
+        mode = 'practice';
+        practice = { practice_id: pid, title: t.title };
+        const data = await A.getExamQuestions(pid);
+        if (seq !== opSeq) return;  // 加载期间已返回列表，丢弃迟到响应
+        enterAnswerView(t.title, data.items || []);
+      }
+
+      async function startExam(eid) {
+        const e = exams.find((x) => x.exam_id === eid);
+        if (!e || e.submitted) return;
+        const seq = ++opSeq;
+        mode = 'exam';
+        practice = { practice_id: eid, title: e.name || ('考试 #' + eid) };
+        const data = await A.getExamQuestions(eid);
+        if (seq !== opSeq) return;  // 加载期间已返回列表，丢弃迟到响应
+        enterAnswerView(e.title || ('考试 #' + eid), data.items || []);
       }
 
       function renderQuestion() {
@@ -195,16 +229,56 @@
         }
         const q = questions[qIndex];
         $('ansProgress').textContent = (qIndex + 1) + '/' + questions.length;
-        const opts = (q.options || []).map((opt, i) => {
-          const letter = String.fromCharCode(65 + i);
-          const selected = answers[q.question_id] === opt;
-          const cls = selected ? ' option selected' : ' option';
-          return '<button class="' + cls + '" data-opt="' + SA.escapeHtml(opt) + '" onclick="window.__pick(this)">' +
-            '<span class="letter">' + letter + '</span><span class="otext">' + SA.renderMarkdown(opt) + '</span><span class="mark">✓</span></button>';
-        }).join('');
+        const optionList = q.options || [];
+        // 主观题（无选项）→ 文本作答框；选择保存随输入即时落草稿
+        const opts = optionList.length
+          ? optionList.map((opt, i) => {
+              const letter = String.fromCharCode(65 + i);
+              const selected = answers[q.question_id] === opt;
+              const cls = selected ? ' option selected' : ' option';
+              return '<button class="' + cls + '" data-opt="' + SA.escapeHtml(opt) + '" onclick="window.__pick(this)">' +
+                '<span class="letter">' + letter + '</span><span class="otext">' + SA.renderMarkdown(opt) + '</span><span class="mark">✓</span></button>';
+            }).join('')
+          : '<textarea class="subj-input" rows="4" placeholder="输入你的答案…">' + SA.escapeHtml(answers[q.question_id] || '') + '</textarea>' +
+            '<div class="formula-bar"><span class="formula-label">符号</span>' +
+            '<button class="fbtn" type="button" data-ins="→" title="生成">→</button>' +
+            '<button class="fbtn" type="button" data-ins="⇌" title="可逆反应">⇌</button>' +
+            '<button class="fbtn" type="button" data-ins="↑" title="气体逸出">↑</button>' +
+            '<button class="fbtn" type="button" data-ins="↓" title="沉淀生成">↓</button>' +
+            '<button class="fbtn" type="button" data-ins="Δ" title="加热条件">Δ</button>' +
+            '<button class="fbtn" type="button" data-ins="＋" title="加号">＋</button>' +
+            '<button class="fbtn" type="button" data-ins="=" title="等号">=</button>' +
+            '<button class="fbtn" type="button" data-ins="()" title="括号">()</button>' +
+            '<button class="fbtn" type="button" data-ins="H₂O" title="水">H₂O</button>' +
+            '<button class="fbtn" type="button" data-ins="CO₂" title="二氧化碳">CO₂</button>' +
+            '<button class="fbtn" type="button" data-ins="H₂SO₄" title="硫酸">H₂SO₄</button>' +
+            '<button class="fbtn" type="button" data-ins="Fe³⁺" title="铁离子">Fe³⁺</button>' +
+            '<button class="fbtn" type="button" data-ins="OH⁻" title="氢氧根">OH⁻</button>' +
+            '</div>';
         $('questionArea').innerHTML =
           '<p class="stem">' + SA.renderMarkdown(q.content) + '</p>' +
           '<div class="options">' + opts + '</div>';
+        const ta = $('questionArea').querySelector('textarea.subj-input');
+        if (ta) {
+          ta.addEventListener('input', function () {
+            answers[q.question_id] = this.value;
+            sessionStorage.setItem(storageKey(practice.practice_id), JSON.stringify(answers));
+          });
+          // 化学符号快捷条：光标处插入并同步草稿（程序设值不触发 input 事件，需手动落答案）
+          Array.prototype.forEach.call($('questionArea').querySelectorAll('.fbtn'), function (b) {
+            b.addEventListener('click', function () {
+              const ins = b.getAttribute('data-ins') || b.textContent;
+              const start = ta.selectionStart;
+              const end = ta.selectionEnd;
+              ta.value = ta.value.slice(0, start) + ins + ta.value.slice(end);
+              const pos = start + ins.length;
+              ta.setSelectionRange(pos, pos);
+              ta.focus();
+              answers[q.question_id] = ta.value;
+              sessionStorage.setItem(storageKey(practice.practice_id), JSON.stringify(answers));
+            });
+          });
+        }
         renderChemRoot($('questionArea'));
         $('btnPrev').disabled = qIndex === 0;
         const isLast = qIndex === questions.length - 1;
@@ -241,7 +315,9 @@
         btn.disabled = true;
         btn.textContent = '提交中…';
         try {
-          results = await A.studentPracticeSubmit(practice.practice_id, payload);
+          results = mode === 'exam'
+            ? await A.examSubmit(practice.practice_id, payload)
+            : await A.studentPracticeSubmit(practice.practice_id, payload);
           if (seq !== opSeq) return;  // 提交期间已返回列表，不强制翻到结果视图
           sessionStorage.removeItem(storageKey(practice.practice_id));
           showResult();
@@ -260,10 +336,12 @@
         const rows = questions.map((q, i) => {
           const r = (results.results || []).find((x) => x.question_id === q.question_id);
           const ok = r && r.is_correct;
+          const reviewTag = r && r.review_needed
+            ? '<span class="q-tag tag-orange" style="margin-left:6px">需人工复核</span>' : '';
           return '<article class="card" style="margin:0 16px 8px">' +
             '<div class="q-top"><div class="q-badge">' + (i + 1) + '</div>' +
             '<div class="q-summary">' + (ok ? '回答正确' : '回答错误') + '</div>' +
-            '<span class="q-tag ' + (ok ? 'tag-green' : 'tag-red') + '">' + (ok ? '✓' : '✗') + '</span></div>' +
+            '<span class="q-tag ' + (ok ? 'tag-green' : 'tag-red') + '">' + (ok ? '✓' : '✗') + '</span>' + reviewTag + '</div>' +
             (ok ? '' :
               '<div class="q-detail">' +
               (r && r.correct_answer ? '<div class="ans-row correct">正确答案：' + SA.renderMarkdown(r.correct_answer) + '</div>' : '') +
@@ -281,15 +359,17 @@
 
       function backToList() {
         opSeq += 1;  // 使进行中的加载/提交失效
+        mode = 'practice';
         $('view-answer').classList.add('hidden');
         $('view-result').classList.add('hidden');
         $('view-list').classList.remove('hidden');
         loadTasks();
+        loadExams();  // 返回列表刷新考试区块（刚提交的考试转「已完成」）
       }
 
       window.__start = startPractice;
+      window.__startExam = startExam;
       window.__pick = pick;
-      window.__generate = generate;
       window.goNext = goNext;
       window.goPrev = goPrev;
       window.showGroup = showGroup;
@@ -307,6 +387,7 @@
         $('taskList').innerHTML = '';
         SA.emptyState($('taskList'), ((err && err.message) || '加载失败，请重试'));
       });
+      loadExams();
     })();
   </script>
 </body>

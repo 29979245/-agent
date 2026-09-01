@@ -15,6 +15,7 @@ from typing import Any, AsyncIterator, Callable, Optional
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain_openai import ChatOpenAI
 
 from app.config import settings
@@ -295,6 +296,10 @@ class LLMClient:
         经熔断 + 退避重试。走底层 `_astream` 而非 Runnable `astream`：避免内层模型
         （ChatOpenAI）作为子 Runnable 再次向 astream_events 冒泡，导致 SSE 事件重复
         （外层 FallbackChatModel 已是唯一模型 Runnable）。
+
+        工具以预格式化 OpenAI dict 直接传给 `_astream`：先 `bind_tools` 再 `_astream`
+        时，RunnableBinding 的属性委托丢弃绑定参数（tools 不随流式请求发送，模型把
+        工具调用写成文本并编造数据）；`_astream` 也不接收原始 StructuredTool（400）。
         """
         breaker = self._breakers[provider]
         if not breaker.allow():
@@ -304,8 +309,10 @@ class LLMClient:
             try:
                 model = self.get_model(provider)
                 if tools:
-                    model = model.bind_tools(tools)
-                async for cg_chunk in model._astream(messages):
+                    stream = model._astream(messages, tools=[convert_to_openai_tool(t) for t in tools])
+                else:
+                    stream = model._astream(messages)
+                async for cg_chunk in stream:
                     # _astream 产出 ChatGenerationChunk；解包为 AIMessageChunk 供 SSE 适配器
                     yield cg_chunk.message if hasattr(cg_chunk, "message") else cg_chunk
                 breaker.record_success()

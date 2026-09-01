@@ -19,8 +19,8 @@ def _ctx(**kw):
 
 
 def test_registry_all_tools_registered():
-    assert len(TOOL_IMPLS) == 35
-    assert len(TOOL_SCHEMAS) == 35
+    assert len(TOOL_IMPLS) == 38
+    assert len(TOOL_SCHEMAS) == 38
     from app.agents.tools.tool_meta import TOOL_META
     assert set(TOOL_IMPLS) == set(TOOL_META)
 

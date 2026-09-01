@@ -205,7 +205,7 @@ def test_build_guard_config_wires_tool_meta_l2():
     from app.agents.tools.tool_meta import TOOL_META
 
     real = build_guard_config(TOOL_META)
-    assert len(real["call_limits"]) == 35
+    assert len(real["call_limits"]) == 38
     assert real["max_concurrent"]["web_search"] == 2
     assert real["max_concurrent"].get("diagnose_barrier") is None  # 未声明不收纳
 

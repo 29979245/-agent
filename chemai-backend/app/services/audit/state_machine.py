@@ -86,21 +86,23 @@ def advance_after_review(state: AuditState, overall_status: str) -> AuditState:
 
 
 def run_audit_cycle(
-    generate: Callable[[], tuple[EquationAuditReport, QuestionReviewResult | None]],
+    generate: Callable[[], tuple[EquationAuditReport | None, QuestionReviewResult | None]],
     initial_state: AuditState | None = None,
-) -> tuple[AuditState, list[tuple[EquationAuditReport, QuestionReviewResult | None]]]:
+) -> tuple[AuditState, list[tuple[EquationAuditReport | None, QuestionReviewResult | None]]]:
     """自动重生成循环（4.2）：每次重新两层审核，blocked 自动重生成 ≤3 次。
 
     generate() 执行一次两层审核（方程式级 + 题目级），返回 (equation_report, question_review)。
+    题面无方程式时 equation_report 为 None，按方程式级 passed 合成（与 build_audit_report 一致）。
     返回 (最终状态, 历次审核报告)。
     """
     state = initial_state or AuditState(overall_status="passed")
-    reports: list[tuple[EquationAuditReport, QuestionReviewResult | None]] = []
+    reports: list[tuple[EquationAuditReport | None, QuestionReviewResult | None]] = []
     while True:
         eq_report, question_review = generate()
         reports.append((eq_report, question_review))
         question_status = question_review.status if question_review is not None else None
-        overall = compose_overall_status(eq_report.overall_status, question_status)
+        equation_status = eq_report.overall_status if eq_report is not None else "passed"
+        overall = compose_overall_status(equation_status, question_status)
         state = advance_after_review(state, overall)
         if state.status != REGENERATING:
             break

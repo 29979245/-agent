@@ -293,12 +293,25 @@
         const lp = report ? report.learning_plan : null;
         const body = $('planBody');
         if (!lp) {
-          body.innerHTML = '<div class="empty">暂无学习计划，完成练习后可生成</div>';
+          body.innerHTML = '<div class="empty">暂无学习计划，等待老师为你生成</div>';
           return;
         }
         let rows = '';
         if (typeof lp === 'string') {
           rows = '<div class="comment-box">' + SA.renderMarkdown(lp) + '</div>';
+        } else if (lp.plan_text && lp.plan_data) {
+          // 新版 plan_text + plan_data：标题 + Markdown 正文 + 逐日任务列表
+          let html = '';
+          if (lp.title) html += '<div class="plan-title" style="font-weight:600;font-size:15px;margin-bottom:8px;">' + SA.escapeHtml(lp.title) + '</div>';
+          html += '<div class="comment-box">' + SA.renderMarkdown(lp.plan_text) + '</div>';
+          if (Array.isArray(lp.plan_data.days)) {
+            html += lp.plan_data.days.map((day) => {
+              const tasks = (day.tasks || []).map((t) => '<li>' + SA.escapeHtml(t) + '</li>').join('');
+              return '<div style="margin-top:10px;"><div style="font-weight:600;">' + SA.escapeHtml(day.label || '') + '</div>' +
+                '<ul style="margin:4px 0 0 18px;padding:0;">' + tasks + '</ul></div>';
+            }).join('');
+          }
+          rows = html;
         } else {
           let items = [];
           if (Array.isArray(lp)) {

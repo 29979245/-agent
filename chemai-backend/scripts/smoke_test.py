@@ -30,8 +30,21 @@ def get(path):
         return e.code, e.headers.get("Content-Type", "")
 
 
-def gen(token, content, source):
-    return post("/api/question/generate", {
+def gen_batch(token, kps, quantity=1, question_types=None, variant_qid=None):
+    """Mode 1 批量生成（设计 doc 25）：返回响应体，questions[0] 为单题。"""
+    payload = {
+        "knowledge_points": kps, "difficulty": "medium", "quantity": quantity,
+        "question_types": question_types or ["choice"],
+    }
+    if variant_qid:
+        payload["variant_qid"] = variant_qid
+        payload["variant_source"] = "historical"
+    return post("/api/question/generate", payload, token)
+
+
+def imp(token, content, source="manual"):
+    """Mode 2 手动录入 / OCR 单题。"""
+    return post("/api/question/import", {
         "content": content, "options": [], "answer": "", "analysis": "",
         "knowledge_points": "配平与计算", "difficulty": "medium", "source": source,
     }, token)
@@ -44,7 +57,7 @@ def main():
     # 1. 静态页（含 JS 模块）
     for p in ("/pages/login.html", "/pages/exam-v2.html",
               "/pages/js/api.js", "/pages/js/auth.js",
-              "/pages/js/mock.js", "/pages/js/katex.js", "/pages/js/workbench.js"):
+              "/pages/js/katex.js", "/pages/js/workbench.js"):
         code, ct = get(p)
         good = code == 200 and ct != ""
         ok.append(good)
@@ -57,61 +70,53 @@ def main():
     print(f"teacher login -> {code} role={login.get('role')} {T(good)}")
     token = login["access_token"]
 
-    # 3. AI 平衡式（前端 LaTeX 格式）→ 方程式级 passed；未配 LLM → 降级 question_level=null
-    code, r = gen(token, "配平并判断反应：$\\ce{2H2 + O2 -> 2H2O}$，该反应属于哪种基本反应类型？", "ai")
-    ar = r.get("audit_report", {})
-    meta = ar.get("meta", {})
-    good = (code == 200 and r.get("overall_status") == "passed"
-            and ar.get("equation_level", {}).get("overall_status") == "passed"
-            and ar.get("question_level") is None
-            and meta.get("review_note") == "llm_unconfigured")
+    # 3. Mode 1 批量生成（balance 方程式）→ questions[0] 四维方程级 passed
+    code, r = gen_batch(token, ["配平与计算"])
+    q0 = (r.get("questions") or [{}])[0] if code == 200 else {}
+    ar = q0.get("audit_report", {})
+    good = (code == 200 and r.get("generated_count") >= 1
+            and q0.get("overall_status") == "passed"
+            and ar.get("equation_level", {}).get("overall_status") == "passed")
     ok.append(good)
-    print(f"ai balanced($\\ce) -> {code} status={r.get('overall_status')} "
-          f"eq={ar.get('equation_level', {}).get('overall_status')} "
-          f"ql={ar.get('question_level')} review_note={meta.get('review_note')} {T(good)}")
+    print(f"batch generate -> {code} count={r.get('generated_count')} "
+          f"status={q0.get('overall_status')} "
+          f"eq={ar.get('equation_level', {}).get('overall_status')} {T(good)}")
 
-    # 4. AI 未配平式 → 重生成耗尽 generation_failed
-    code, r = gen(token, "配平：$\\ce{H2 + O2 -> H2O}$", "ai")
-    ar = r.get("audit_report", {})
-    good = (code == 200 and r.get("generation_failed") is True
-            and r.get("overall_status") == "blocked"
-            and ar.get("meta", {}).get("regeneration_attempts") == 3)
-    ok.append(good)
-    print(f"ai unbalanced -> {code} status={r.get('overall_status')} "
-          f"generation_failed={r.get('generation_failed')} "
-          f"attempts={ar.get('meta', {}).get('regeneration_attempts')} {T(good)}")
+    # 4. import 未配平（manual）→ blocked，批准被拒 400
+    code, r = imp(token, "配平：$\\ce{H2 + O2 -> H2O}$", "manual")
+    qid = r.get("question_id")
+    if code == 200 and qid:
+        code2, r2 = post(f"/api/question/{qid}/approve", {}, token)
+        good = code2 == 400 and "blocked" in str(r2.get("detail", "")).lower()
+        ok.append(good)
+        print(f"import unbalanced + approve -> import={code} approve={code2} "
+              f"detail={r2.get('detail')} {T(good)}")
+    else:
+        ok.append(False)
+        print(f"import unbalanced -> 前置失败 {code} ✗")
 
-    # 5. manual 无方程式 → ql null + eq note 无方程式可校验
-    code, r = gen(token, "下列物质中既能与盐酸反应又能与氢氧化钠溶液反应的是（ ）。", "manual")
+    # 5. import 无方程式（manual）→ ql null + eq note 无方程式可校验
+    code, r = imp(token, "下列物质中既能与盐酸反应又能与氢氧化钠溶液反应的是（ ）。", "manual")
     ar = r.get("audit_report", {})
     good = (code == 200 and r.get("overall_status") == "passed"
             and ar.get("question_level") is None
             and ar.get("equation_level", {}).get("note") == "无方程式可校验")
     ok.append(good)
-    print(f"manual -> {code} status={r.get('overall_status')} "
+    print(f"manual import -> {code} status={r.get('overall_status')} "
           f"ql={ar.get('question_level')} eq_note={ar.get('equation_level', {}).get('note')} {T(good)}")
 
     # 6. 批准 passed 题目 → 200（warning 时带复核标记）
-    code, r = gen(token, "配平：$\\ce{2H2 + O2 -> 2H2O}$", "ai")
-    if code == 200 and r.get("question_id"):
-        code2, r2 = post(f"/api/question/{r['question_id']}/approve", {}, token)
+    code, r = gen_batch(token, ["配平与计算"])
+    q0 = (r.get("questions") or [{}])[0] if code == 200 else {}
+    qid = q0.get("question_id")
+    if code == 200 and qid:
+        code2, r2 = post(f"/api/question/{qid}/approve", {}, token)
         good = code2 == 200 and r2.get("status") == "approved"
         ok.append(good)
         print(f"approve passed -> {code2} status={r2.get('status')} review_flag={r2.get('review_flag')} {T(good)}")
     else:
         ok.append(False)
         print("approve passed -> 前置生成失败 ✗")
-
-    # 7. 批准 blocked 题目 → 400 + blocked 提示
-    code, r = gen(token, "配平：$\\ce{H2 + O2 -> H2O}$", "ai")
-    if code == 200 and r.get("question_id"):
-        code2, r2 = post(f"/api/question/{r['question_id']}/approve", {}, token)
-        good = code2 == 400 and "blocked" in str(r2.get("detail", "")).lower()
-        ok.append(good)
-        print(f"approve blocked -> {code2} detail={r2.get('detail')} {T(good)}")
-    else:
-        ok.append(False)
-        print("approve blocked -> 前置生成失败 ✗")
 
     # 8. 学生登录（后端放行，前端角色门控拦截）
     code, login = post("/api/auth/login", {"username": "student_demo", "password": "demo123"})

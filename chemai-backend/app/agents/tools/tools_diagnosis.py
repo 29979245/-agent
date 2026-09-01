@@ -13,17 +13,17 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from app.core.exceptions import ForbiddenError, NotFoundError
-from app.db.models import Account, Class, NotificationType, ParentNotification, Student, StudentParentBinding
+from app.db.models import Account, Class, Student, StudentParentBinding
 from app.agents.tools import tools_memory
 from app.services.analytics.panel_service import class_students
 from app.services.analytics.weekly_report_service import get_or_generate_weekly_report
-from app.services.diagnosis.aggregation import normalize_profile
+from app.services.diagnosis.aggregation import BARRIER_LABELS, dominant_axis, normalize_profile
+from app.services.diagnosis.learning_plan import apply_plan
 from app.services.exercise.adaptive import AdaptivePracticeService
 from app.agents.tools.context import ToolContext, user_id as _user_id, user_role as _user_role
 from app.agents.tools.llm_adapter import CompleteAdapter
 
 BARRIER_AXES = ("concept", "reading", "expression")
-_DOMINANT_LABELS = {"concept": "概念理解", "reading": "审题障碍", "expression": "表述障碍"}
 
 # ---------------------------------------------------------------- 参数 Schema
 
@@ -76,18 +76,35 @@ class SendLearningPlanArgs(BaseModel):
 
 _CN_DIGITS = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
 
+# 固定年级词（高一/高二/高三/初一…），其中的中文数字是词本身的一部分，
+# 不得当作班级序号转换——否则「高一（3）班」会被误规范成「高13班」。
+_GRADE_PREFIXES = (
+    "一年级", "二年级", "三年级", "四年级", "五年级", "六年级",
+    "七年级", "八年级", "九年级",
+    "初一", "初二", "初三", "高一", "高二", "高三",
+)
+
 
 def _normalize_class_name(name: str) -> str:
-    """班级名数字规范化：'高一（一）班' → '高一1班'（doc 30 §3.3）。"""
+    """班级名数字规范化：'高一（一）班' → '高一1班'（doc 30 §3.3）。
+
+    仅转换班级序号里的中文数字；固定年级词整体保留。
+    """
     name = re.sub(r"[（(（\s)]", "", name)
     name = re.sub(r"[）)]", "", name)
+    protected: dict[str, str] = {}
+    for i, prefix in enumerate(_GRADE_PREFIXES):
+        token = f"\x00{i}\x00"
+        if prefix in name:
+            name = name.replace(prefix, token)
+            protected[token] = prefix
     out: list[str] = []
     for ch in name:
-        if ch in _CN_DIGITS:
-            out.append(str(_CN_DIGITS[ch]))
-        else:
-            out.append(ch)
-    return "".join(out)
+        out.append(str(_CN_DIGITS[ch]) if ch in _CN_DIGITS else ch)
+    result = "".join(out)
+    for token, prefix in protected.items():
+        result = result.replace(token, prefix)
+    return result
 
 
 def _bound_student_ids(ctx: ToolContext) -> set[int]:
@@ -150,28 +167,24 @@ def _resolve_class(ctx: ToolContext, class_id=None, class_name=None) -> tuple[Cl
         return None, []
     exact = ctx.db.query(Class).filter(Class.name == class_name).all()
     if not exact:
-        exact = ctx.db.query(Class).filter(Class.name == name).all()
-    if not exact:
-        exact = ctx.db.query(Class).filter(Class.name.like(f"%{name}%")).all()
+        # 两侧同规范化后比较：免疫全/半角括号、空白、中文数字写法差异
+        # （LLM 常把「高一（3）班」规整成「高一(3)班 / 高一3班 / 高一三班」）。
+        all_classes = ctx.db.query(Class).all()
+        exact = [c for c in all_classes if _normalize_class_name(c.name) == name]
+        if not exact:
+            exact = [c for c in all_classes if name in _normalize_class_name(c.name)]
     if len(exact) == 1:
         return exact[0], []
     cands = [{"class_id": c.id, "name": c.name} for c in exact]
     return None, cands
 
 
-def _dominant(profile: dict) -> str:
-    norm = normalize_profile(profile)
-    if not any(v > 0 for v in norm.values()):
-        return "concept"
-    return max(norm, key=norm.get)
-
-
 def _profile_payload(student: Student) -> dict:
     profile = normalize_profile(student.barrier_profile)
     return {
         "profile": profile,
-        "dominant_barrier": _dominant(profile),
-        "dominant_label": _DOMINANT_LABELS[_dominant(profile)],
+        "dominant_barrier": dominant_axis(profile),
+        "dominant_label": BARRIER_LABELS[dominant_axis(profile)],
     }
 
 
@@ -262,14 +275,14 @@ async def show_students(
     data = class_students(ctx.db, cls.id)
     items = []
     for s in data["items"]:
-        dom = _dominant(s["barrier_profile"])
+        dom = dominant_axis(s["barrier_profile"])
         if barrier_filter and dom != barrier_filter:
             continue
         items.append({
             "student_id": s["id"],
             "name": s["name"],
             "dominant_barrier": dom,
-            "dominant_label": _DOMINANT_LABELS[dom],
+            "dominant_label": BARRIER_LABELS[dom],
             "profile": s["barrier_profile"],
             "score_trend": s.get("score_trend") or [],
             "is_active": s.get("is_active", False),
@@ -285,6 +298,23 @@ async def show_students(
     }
 
 
+def _render_report_text(report: dict) -> str:
+    """把 {summary, detail, advice} 拼成自然语言段落。
+
+    周报本身已是 LLM 生成的家长向文本，工具只应把渲染好的段落交给 Agent LLM——
+    若把原始 dict 作为工具结果返回，Agent LLM 可能把 JSON 原样复读进回复
+    （实证：家长端出现 `{"summary":...}本周完成4次练习...` 的拼接输出）。
+    """
+    if report.get("no_data"):
+        return (report.get("summary") or "本周暂无练习记录").strip()
+    parts = []
+    for key in ("summary", "detail", "advice"):
+        text = (report.get(key) or "").strip()
+        if text:
+            parts.append(text if text.endswith(("。", "！", "？")) else text + "。")
+    return "".join(parts)
+
+
 async def weekly_report(
     ctx: ToolContext,
     student_id: Optional[int] = None,
@@ -292,7 +322,11 @@ async def weekly_report(
     class_name: Optional[str] = None,
     class_id: Optional[int] = None,
 ) -> dict:
-    """LLM 生成 ≤200 字自然语言周报（doc 30 §3.3，通俗不制造焦虑）。"""
+    """LLM 生成 ≤200 字自然语言周报（doc 30 §3.3，通俗不制造焦虑）。
+
+    返回 report_text（渲染好的纯文本段落）而非原始 {summary,detail,advice} dict，
+    避免 Agent LLM 把工具 JSON 复读进家长对话。
+    """
     if ctx.db is None:
         return {"error": "db_unavailable", "message": "数据库未注入", "_guard_error": True}
     student, cands = _resolve_student(ctx, student_id, student_name)
@@ -307,7 +341,7 @@ async def weekly_report(
     return {
         "student_id": student.id,
         "name": student.name,
-        "report": report,
+        "report_text": _render_report_text(report),
         "no_data": bool(report.get("no_data")),
     }
 
@@ -363,30 +397,10 @@ async def generate_learning_plan(
 
 
 async def send_learning_plan(ctx: ToolContext, student_id: int, plan_data: dict) -> dict:
-    """持久化学习计划并通知家长（doc 30 §3.3）。"""
+    """持久化学习计划并通知家长（doc 30 §3.3，复用 apply_plan 防行为漂移）。"""
     if ctx.db is None:
         return {"error": "db_unavailable", "message": "数据库未注入", "_guard_error": True}
-    student = ctx.db.get(Student, student_id)
-    if student is None:
+    try:
+        return apply_plan(ctx.db, student_id, plan_data)
+    except NotFoundError:
         return {"error": "not_found", "message": "未找到该学生", "_guard_error": True}
-    student.learning_plan = plan_data
-    title = f"{student.name}的学习计划已生成"
-    rows = ctx.db.query(StudentParentBinding.parent_id).filter(
-        StudentParentBinding.student_id == student_id,
-        StudentParentBinding.status == "active",
-    ).all()
-    for (parent_id,) in rows:
-        ctx.db.add(ParentNotification(
-            parent_id=parent_id,
-            notification_type=NotificationType.learning_plan,
-            title=title,
-            content=plan_data.get("summary") or plan_data.get("title") or "学习计划",
-        ))
-    ctx.db.commit()
-    return {
-        "sent": True,
-        "student_id": student_id,
-        "name": student.name,
-        "plan_title": title,
-        "notified_parents": len(rows),
-    }

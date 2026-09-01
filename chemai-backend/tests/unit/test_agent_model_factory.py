@@ -6,6 +6,9 @@
 import asyncio
 
 import pytest
+from langchain_core.messages import AIMessageChunk, ToolCallChunk
+from langchain_core.outputs import ChatGenerationChunk
+from langchain_core.tools import tool
 
 from app.agents.factories.model_factory import (
     FALLBACK_CHAIN,
@@ -15,6 +18,12 @@ from app.agents.factories.model_factory import (
     get_provider_config,
     provider_capability,
 )
+
+
+@tool
+async def show_my_wrong_questions() -> dict:
+    """列出当前登录学生的错题。适用：学生询问自己的错题。"""
+    return {}
 
 
 class FakeResult:
@@ -201,3 +210,73 @@ def test_missing_api_key_raises_config_error(monkeypatch):
     client = LLMClient(chain=("deepseek",), retries=1)
     with pytest.raises(RuntimeError, match="未配置 API key"):
         client.get_model("deepseek")
+
+
+# ---------- 流式工具调用（astream_message 修复：bind_tools 委托丢工具 → 预格式化直传） ----------
+
+class StreamingToolModel:
+    """记录 `_astream` 收到的 kwargs，产出带 tool_call_chunks 的流式 chunk。
+
+    bind_tools 本会被调用但修复后必须不再触发（其 RunnableBinding 属性委托会丢工具）。
+    """
+
+    def __init__(self, with_tool_calls: bool = True):
+        self.bind_calls = 0
+        self.astream_kwargs: dict | None = None
+        self.with_tool_calls = with_tool_calls
+
+    def bind_tools(self, tools, **kwargs):
+        self.bind_calls += 1
+        return self
+
+    async def _astream(self, messages, **kwargs):
+        self.astream_kwargs = kwargs
+        if self.with_tool_calls:
+            chunk = AIMessageChunk(
+                content="",
+                tool_call_chunks=[ToolCallChunk(name="show_my_wrong_questions", args="{}", id="call_1")],
+            )
+        else:
+            chunk = AIMessageChunk(content="你好")
+        yield ChatGenerationChunk(message=chunk)
+
+
+def _streaming_client(model):
+    return LLMClient(model_builder=lambda p: model, retries=1)
+
+
+def test_astream_message_formats_tools_and_skips_bind_tools():
+    """带工具：直接以预格式化 OpenAI dict 调 `_astream`，不再走 bind_tools。"""
+    async def _run():
+        model = StreamingToolModel()
+        client = _streaming_client(model)
+        chunks = [
+            c async for c in client.astream_message(
+                "deepseek", [{"role": "user", "content": "查看我的错题"}], tools=[show_my_wrong_questions]
+            )
+        ]
+        return chunks, model
+
+    chunks, model = asyncio.run(_run())
+    assert model.bind_calls == 0  # 修复核心：不经 bind_tools（其 `_astream` 委托会丢绑定参数）
+    tools = model.astream_kwargs.get("tools")
+    assert isinstance(tools, list) and len(tools) == 1
+    assert tools[0]["type"] == "function"
+    assert tools[0]["function"]["name"] == "show_my_wrong_questions"
+    assert chunks[0].tool_call_chunks
+    assert chunks[0].tool_call_chunks[0]["name"] == "show_my_wrong_questions"
+
+
+def test_astream_message_without_tools_calls_plain():
+    """无工具：`_astream` 不携带 tools kwarg，文本 chunk 原样透出。"""
+    async def _run():
+        model = StreamingToolModel(with_tool_calls=False)
+        client = _streaming_client(model)
+        chunks = [
+            c async for c in client.astream_message("deepseek", [{"role": "user", "content": "hi"}])
+        ]
+        return chunks, model
+
+    chunks, model = asyncio.run(_run())
+    assert "tools" not in model.astream_kwargs
+    assert "".join(str(c.content) for c in chunks) == "你好"

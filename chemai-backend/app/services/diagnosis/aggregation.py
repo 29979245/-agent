@@ -11,6 +11,7 @@ from datetime import datetime
 from app.db.models import Student, StudentAnswer
 
 BARRIER_AXES = ("concept", "reading", "expression")
+BARRIER_LABELS = {"concept": "概念理解", "reading": "审题障碍", "expression": "表述障碍"}
 
 
 def aggregate(barrier_types: list[str | None]) -> dict[str, float]:
@@ -35,6 +36,14 @@ def normalize_profile(profile) -> dict[str, float]:
         # NaN/inf 会静默污染 class_stats 平均值 → 一律归零（T11 防御扩展）
         out[k] = round(v, 2) if isinstance(v, (int, float)) and math.isfinite(v) else 0.0
     return out
+
+
+def dominant_axis(profile) -> str:
+    """障碍画像主导轴：归一化后取最高维；全零/空 → 默认 concept（与生成器/工具共用）。"""
+    norm = normalize_profile(profile)
+    if not any(v > 0 for v in norm.values()):
+        return "concept"
+    return max(norm, key=norm.get)
 
 
 def refresh_profiles(session, student_ids: list[int] | None = None) -> int:

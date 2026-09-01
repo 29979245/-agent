@@ -212,10 +212,12 @@ def test_run_agent_chat_without_resume_pauses_for_approval(tmp_path):
 
     frames = asyncio.run(_run())
     names = [n for n, _ in frames]
-    # 暂停：awaiting_approval 阶段后不发 done
+    # 暂停：独立 awaiting_approval 事件后不发 done（前端 paused 契约）
     assert "done" not in names
-    phases = [p["content"] for n, p in frames if n == "phase"]
-    assert "awaiting_approval" in phases
+    assert "awaiting_approval" in names
+    pause_ev = next(p for n, p in frames if n == "awaiting_approval")
+    assert pause_ev["tool"] == "delete_bank"
+    assert pause_ev["args"] == {"bank_id": 3}
     # 注册表记录待审批
     assert get_pending_approval(thread_key(7, "t7")) is not None
     pop_pending_approval(thread_key(7, "t7"))

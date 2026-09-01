@@ -94,6 +94,13 @@ register_impl("browse_click", tools_browser.BrowseClickArgs, tools_browser.brows
 register_impl("browse_input", tools_browser.BrowseInputArgs, tools_browser.browse_input)
 register_impl("browse_screenshot", tools_browser.BrowseScreenshotArgs, tools_browser.browse_screenshot)
 
+# ---------- 学生自助组（tools_student） ----------
+from app.agents.tools import tools_student  # noqa: E402
+
+register_impl("show_my_wrong_questions", tools_student.ShowMyWrongQuestionsArgs, tools_student.show_my_wrong_questions)
+register_impl("show_my_review_tasks", tools_student.ShowMyReviewTasksArgs, tools_student.show_my_review_tasks)
+register_impl("show_my_report", tools_student.ShowMyReportArgs, tools_student.show_my_report)
+
 
 # ---------------------------------------------------------------- 执行包装
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 
+from app.services.diagnosis.aggregation import refresh_profiles
 from app.services.diagnosis.fusion import FLAG_ERROR, fuse
 from app.services.diagnosis.llm_diagnosis import (
     DiagnosisLLMClient,
@@ -41,6 +42,8 @@ def run_submit_side_effects(
         if wrong_question_ids:
             sync_review_tasks(db, student_id, wrong_question_ids)
             _rule_fallback_diagnosis(db, student_id, wrong_question_ids, client)
+        # 作答后聚合障碍画像（跳过冻结学生；refresh_profiles 内部 commit 一并落库上述变更）
+        refresh_profiles(db, [student_id])
         db.commit()
     except Exception:  # noqa: BLE001 —— 后台副作用失败仅记日志，不阻塞主流程
         logger.exception("提交后副作用执行失败：student_id=%s", student_id)

@@ -13,6 +13,7 @@ import pytest
 from langchain_core.messages import AIMessage, ToolCallChunk, ToolMessage
 
 from app.agents.sse_adapter import (
+    HEARTBEAT,
     PHASE_AWAITING_APPROVAL,
     PHASE_EXECUTING,
     PHASE_REPLY,
@@ -180,13 +181,16 @@ def test_approval_pause_stops_stream_without_done():
         events, on_approval_pending=lambda tool, args: pending.append((tool, args))
     ))
     names = [n for n, _ in frames]
-    # tool_call → phase(executing) → phase(awaiting_approval) → tool_result
-    assert names == ["tool_call", "phase", "phase", "tool_result"]
+    # tool_call → phase(executing) → awaiting_approval(独立事件) → tool_result
+    assert names == ["tool_call", "phase", "awaiting_approval", "tool_result"]
     # 不发出 done——流在审批处暂停
     assert "done" not in names
     # executing 先于 awaiting_approval
     assert frames[1][1]["content"] == PHASE_EXECUTING
-    assert frames[2][1]["content"] == PHASE_AWAITING_APPROVAL
+    pause_ev = frames[2]
+    assert pause_ev[0] == PHASE_AWAITING_APPROVAL
+    assert pause_ev[1]["tool"] == "delete_bank"
+    assert pause_ev[1]["args"] == {"bank_name": "高一氧化还原"}
     # tool_result 失败，携带 error
     assert frames[3][1]["success"] is False
     assert frames[3][1]["error"] == "requires_approval_blocked"
@@ -271,3 +275,39 @@ def test_payload_type_field_present():
     frames = asyncio.run(_collect(events))
     for name, payload in frames:
         assert "type" in payload, f"{name} payload 缺 type"
+
+
+# ---------- 心跳保活 ----------
+
+class _SlowChunks(_Chunks):
+    """模拟慢工具执行期的长静默：相邻事件间 sleep 超过 heartbeat_interval。"""
+
+    async def __anext__(self):
+        await asyncio.sleep(0.12)
+        return await super().__anext__()
+
+
+async def _collect_slow(events, **kwargs):
+    frames = []
+    async for frame in agent_events_to_sse(_SlowChunks(events), **kwargs):
+        frames.append(frame)
+    return frames
+
+
+def test_heartbeat_frames_during_silent_period():
+    events = [
+        {"event": "on_chat_model_end", "data": {"output": _ai_tool_calls()}},
+        {"event": "on_tool_start", "name": "search_exam_bank"},
+        {"event": "on_tool_end", "name": "search_exam_bank", "data": {"output": _tool_result_msg()}},
+        {"event": "on_chat_model_end", "data": {"output": AIMessage(content="完成")}},
+    ]
+    frames = asyncio.run(_collect_slow(events, heartbeat_interval=0.05))
+    names = [n for n, _ in frames]
+    # 静默 > heartbeat_interval → 心跳帧（空 payload 保活，前端忽略）
+    assert HEARTBEAT in names
+    hb = next(p for n, p in frames if n == HEARTBEAT)
+    assert hb == {}
+    # 心跳仅穿插于事件间，真实事件顺序不受影响，正常收尾 done
+    real = [n for n in names if n != HEARTBEAT]
+    assert real == ["tool_call", "phase", "tool_result", "phase", "text", "done"]
+    assert names[-1] == "done"

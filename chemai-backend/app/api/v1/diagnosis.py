@@ -10,6 +10,9 @@
 - DELETE /override/{student_id}       解除冻结（教师显式清除，恢复聚合）
 - GET  /override/{student_id}         覆盖历史
 - GET/PUT /config/{teacher_id}        诊断阈值配置（upsert、部分更新、默认 3/2/3/3/false）
+- POST /learning-plan/generate        教师规则引擎生成计划预览（不落库；无数据 409）
+- POST /learning-plan/apply/{student_id} 教师推送计划（落库 + 家长通知）
+- GET  /learning-plan/{student_id}    读取计划（学生仅读自身，教师任意）
 """
 import logging
 from concurrent.futures import ThreadPoolExecutor
@@ -20,7 +23,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ForbiddenError, NotFoundError
+from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.core.permissions import require_permission
 from app.db.models import (
     Account,
@@ -42,6 +45,7 @@ from app.services.diagnosis.llm_diagnosis import (
     FallbackDiagnosisLLMClient,
     diagnose_llm,
 )
+from app.services.diagnosis.learning_plan import apply_plan, generate_plan
 from app.services.diagnosis.rule_engine import ChemistryRuleEngine
 
 diagnosis_logger = logging.getLogger("chemai.diagnosis")
@@ -578,3 +582,55 @@ def put_config(
         setattr(cfg, key, value)
     db.commit()
     return {"teacher_id": teacher_id, **{k: getattr(cfg, k) for k in DEFAULT_CONFIG}}
+
+
+# ---------------- 8.4 学习计划（doc 22 §2.6 / doc 30 §3.3） ----------------
+
+
+class LearningPlanGenerateRequest(BaseModel):
+    student_id: int
+
+
+class LearningPlanApplyRequest(BaseModel):
+    plan: dict
+
+
+@diagnosis_router.post("/learning-plan/generate")
+@require_permission("diagnosis", "create")
+def generate_learning_plan_endpoint(
+    request: Request,
+    payload: LearningPlanGenerateRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """规则引擎生成学习计划预览（不落库、不通知）；无作答数据 → 409。"""
+    result = generate_plan(db, payload.student_id)
+    if result.get("empty"):
+        raise ConflictError(detail=result["message"], error_code="NO_LEARNING_DATA")
+    return result
+
+
+@diagnosis_router.post("/learning-plan/apply/{student_id}")
+@require_permission("diagnosis", "create")
+def apply_learning_plan_endpoint(
+    request: Request,
+    student_id: int,
+    payload: LearningPlanApplyRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """落库学习计划 + 向有效绑定家长创建学习计划通知。"""
+    return apply_plan(db, student_id, payload.plan)
+
+
+@diagnosis_router.get("/learning-plan/{student_id}")
+@require_permission("diagnosis", "read")
+def get_learning_plan_endpoint(
+    request: Request, student_id: int, db: Session = Depends(get_db)
+) -> dict:
+    """读取学习计划：学生仅读自身（他人 403），教师可读任意学生。"""
+    user = request.state.user
+    if user.role == "student" and _role_id(db, user) != student_id:
+        raise ForbiddenError()
+    student = db.get(Student, student_id)
+    if student is None:
+        raise NotFoundError()
+    return {"student_id": student_id, "learning_plan": student.learning_plan or None}

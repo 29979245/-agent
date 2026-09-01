@@ -157,3 +157,28 @@ def test_cycle_equation_only_manual_flow():
     state, _ = run_audit_cycle(generate)
     assert state.status == GENERATION_FAILED
     assert len(calls) == MAX_REGENERATION_ATTEMPTS + 1
+
+
+def test_cycle_no_equation_in_content():
+    """回归：题面无化学方程式 → equation_report=None，按方程式级 passed 合成，不再 AttributeError。"""
+    def generate():
+        return None, _review()  # AI 题面为纯文本，无方程式
+
+    state, reports = run_audit_cycle(generate)
+    assert state.status == IN_REVIEW
+    assert state.overall_status == "passed"
+    assert state.regeneration_attempts == 0
+    assert len(reports) == 1
+
+
+def test_cycle_no_equation_blocked_still_regenerates():
+    """无方程式但题目级 blocked → 整体 blocked → 自动重生成。"""
+    calls = []
+
+    def generate():
+        calls.append(1)
+        return None, _review(status="blocked")
+
+    state, _ = run_audit_cycle(generate)
+    assert state.status == GENERATION_FAILED
+    assert len(calls) == MAX_REGENERATION_ATTEMPTS + 1

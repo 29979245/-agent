@@ -11,10 +11,13 @@ from app.db.models import (
     Class,
     ExamRecord,
     Grade,
+    Parent,
+    ParentNotification,
     Question,
     School,
     Student,
     StudentAnswer,
+    StudentParentBinding,
     Teacher,
 )
 from app.db.models.enums import (
@@ -23,6 +26,7 @@ from app.db.models.enums import (
     Difficulty,
     ExamStatus,
     ExamType,
+    NotificationType,
     QuestionSource,
 )
 from app.services.analytics.panel_service import load_class_panel, panel_report_html
@@ -99,6 +103,21 @@ def _answer(db, student, question, exam, is_correct=True, answered_at=None):
     db.add(a)
     db.flush()
     return a
+
+
+def _parent(db, name, phone):
+    p = Parent(name=name, phone=phone)
+    db.add(p)
+    db.flush()
+    return p
+
+
+def _bind(db, parent, student, status="active"):
+    b = StudentParentBinding(parent_id=parent.id, student_id=student.id,
+                             bind_code="123456", status=status)
+    db.add(b)
+    db.flush()
+    return b
 
 
 def _setup_class_data(db, school=None):
@@ -265,6 +284,113 @@ def test_student_detail_unknown_404(exercise_client):
         f"/api/panel/class/{ctx.cls.id}/student/99999", headers=_auth(ctx.tacc)
     )
     assert resp.status_code == 404
+
+
+def test_student_detail_kpi_and_activity(exercise_client):
+    """KPI 四格（练习次数/平均正确率/最后活跃）+ 最近活动时间线（对/错都算）。"""
+    client, db = exercise_client
+    ctx = _setup_class_data(db)  # s1：期中错 1、期末对 1 → 作答 2 条
+    p = ExamRecord(student_id=ctx.s1.id, class_id=None, name="每日练习",
+                   exam_type=ExamType.practice, status=ExamStatus.published,
+                   exam_date=_TODAY)
+    db.add(p)
+    db.flush()
+    answered_at = datetime.datetime.utcnow() - datetime.timedelta(days=1)
+    _answer(db, ctx.s1, _question(db, "基础"), p, is_correct=True,
+            answered_at=answered_at)
+    db.commit()
+
+    resp = client.get(f"/api/panel/class/{ctx.cls.id}/student/{ctx.s1.id}",
+                      headers=_auth(ctx.tacc))
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["exercises_completed"] == 1            # 1 个有作答的练习
+    assert body["accuracy"] == round(2 / 3, 4)         # 2 对 / 3 作答
+    assert body["last_exercise_at"] is not None
+    acts = body["recent_activity"]
+    assert len(acts) == 3                              # 期末对 / 期中错 / 练习对，倒序
+    assert acts[0]["exam_name"] == "期末" and acts[0]["is_correct"] is True
+    assert acts[1]["exam_name"] == "期中" and acts[1]["is_correct"] is False
+    assert acts[2]["date"] == answered_at.date().isoformat()
+    assert all("exam_name" in a and "content" in a and "date" in a for a in acts)
+
+
+def test_student_detail_empty_kpi(exercise_client):
+    """无作答学生：KPI 与活动时间线为空态。"""
+    client, db = exercise_client
+    school = _school(db)
+    cls = _class(db, _grade(db, school), "空班")
+    s = _student(db, cls, "无作答")
+    teacher, tacc = _teacher(db, school, "陈老师")
+    db.commit()
+
+    body = client.get(f"/api/panel/class/{cls.id}/student/{s.id}",
+                      headers=_auth(tacc)).json()
+    assert body["exercises_completed"] == 0
+    assert body["accuracy"] == 0.0
+    assert body["last_exercise_at"] is None
+    assert body["recent_activity"] == []
+
+
+# ---------------- 2.3b 发送通知（教师 → 学生绑定家长） ----------------
+
+def test_notify_sends_to_active_bound_parents(exercise_client):
+    client, db = exercise_client
+    ctx = _setup_class_data(db)
+    pa = _parent(db, "张父", "13900000001")
+    pb = _parent(db, "张母", "13900000002")
+    pc = _parent(db, "旧父", "13900000003")
+    _bind(db, pa, ctx.s1)
+    _bind(db, pb, ctx.s1)
+    _bind(db, pc, ctx.s1, status="inactive")
+    db.commit()
+
+    resp = client.post(f"/api/panel/student/{ctx.s1.id}/notify",
+                       json={"content": "请督促孩子复习氧化还原"},
+                       headers=_auth(ctx.tacc))
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["sent"] is True and body["notified_parents"] == 2
+    notes = (db.query(ParentNotification)
+             .filter(ParentNotification.notification_type == NotificationType.reminder)
+             .all())
+    assert len(notes) == 2
+    assert all(n.title == "张三·老师通知" and n.content == "请督促孩子复习氧化还原" for n in notes)
+    assert {n.parent_id for n in notes} == {pa.id, pb.id}  # inactive 绑定不通知
+
+
+def test_notify_no_bound_parent(exercise_client):
+    client, db = exercise_client
+    ctx = _setup_class_data(db)
+    resp = client.post(f"/api/panel/student/{ctx.s2.id}/notify",
+                       json={"content": "你好"}, headers=_auth(ctx.tacc))
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["sent"] is False and body["notified_parents"] == 0
+    assert "未绑定" in body["message"]
+    assert db.query(ParentNotification).count() == 0
+
+
+def test_notify_cross_school_forbidden(exercise_client):
+    client, db = exercise_client
+    ctx = _setup_class_data(db)
+    t_b, acc_b = _teacher(db, _school(db, "B校"), "赵老师")
+    db.commit()
+    resp = client.post(f"/api/panel/student/{ctx.s1.id}/notify",
+                       json={"content": "x"}, headers=_auth(acc_b))
+    assert resp.status_code == 403
+
+
+def test_notify_student_rejected(exercise_client):
+    client, db = exercise_client
+    ctx = _setup_class_data(db)
+    stu_acc = Account(username="stu2", password_hash="x", role=AccountRole.student,
+                      role_id=ctx.s1.id)
+    db.add(stu_acc)
+    db.commit()
+    resp = client.post(f"/api/panel/student/{ctx.s1.id}/notify",
+                       json={"content": "x"}, headers=_auth(stu_acc, role="student"))
+    assert resp.status_code == 403
 
 
 # ---------------- 2.4 趋势 ----------------

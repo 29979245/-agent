@@ -345,6 +345,32 @@ register_tool(ToolMeta(
     icon="📸",
 ))
 
+# ---------- 学生自助（3 工具，doc 30 §3 学生端） ----------
+register_tool(ToolMeta(
+    name="show_my_wrong_questions",
+    title="我的错题",
+    description="列出当前登录学生的错题（按最近作答倒序、累计答错次数，已掌握移除）。适用：学生询问自己的错题/错题本。NOT for：非本人学生（用教师侧错题能力）。",
+    personas=("student",),
+    call_limit=2,
+    icon="📕",
+))
+register_tool(ToolMeta(
+    name="show_my_review_tasks",
+    title="我的复习任务",
+    description="列出当前登录学生到期的间隔复习任务（艾宾浩斯，pending/overdue 按到期升序）。适用：学生询问复习中心/待复习题目。NOT for：非本人学生。",
+    personas=("student",),
+    call_limit=2,
+    icon="🔁",
+))
+register_tool(ToolMeta(
+    name="show_my_report",
+    title="我的学情报告",
+    description="返回当前登录学生的学情报告（完成题数/正确率/连续打卡/知识点掌握度/当周报告/学习计划）。适用：学生询问自己的学习情况/报告/掌握度。NOT for：非本人学生。",
+    personas=("student",),
+    call_limit=2,
+    icon="📊",
+))
+
 
 def integrity_check() -> list[str]:
     """编译时完整性校验（doc 30 §3.1 / doc 30 §十七）。返回问题列表，空=通过。"""
